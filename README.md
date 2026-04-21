@@ -1,12 +1,13 @@
 # Terminal-BTC
 
-Paper-trading bot for BTC against **real** Binance market prices, with a pluggable signal generator.
+Paper-trading bot for BTC, ETH, SOL, XRP, and other high-volume USDT pairs against **real** market prices, with a pluggable signal generator and exchange data source.
 
-- **Defaults**: `PAPER_MODE=true` + `SIGNAL_MODE=rules` → runs with **no API keys**. No real orders ever.
-- **Market data**: pulled from Binance's public mainnet endpoints (no keys, no testnet) so paper fills use real prices.
+- **Defaults**: `PAPER_MODE=true` + `SIGNAL_MODE=rules` + `DATA_SOURCE=bybit` → runs with **no API keys**. No real orders ever.
+- **Market data**: pulled from a real public exchange (Bybit by default, swap to Binance or Kraken via `DATA_SOURCE`). No keys, no testnet.
+- **Universe**: 8 pairs by default — BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, LINK. Edit `TRADE_SYMBOLS` to add more; `SYMBOL_ALLOWLIST` is a hard filter (16 pairs out of the box).
 - **Signal**: local EMA/RSI/MACD/ATR engine (`app/services/rules_signal.py`). Swap in Claude later with `SIGNAL_MODE=claude` + `ANTHROPIC_API_KEY`.
-- **Risk gates**: per-trade cap, daily loss cap, max open positions, symbol allowlist, DB-backed kill switch, idempotent `clientOrderId`.
-- **TradingView** is optional — free TV tier has no webhooks; the scheduler polls every `POLL_INTERVAL_SEC`. If you later upgrade, the `/tv/webhook` route is already wired.
+- **Risk gates**: per-trade cap, daily loss cap, max concurrent positions, symbol allowlist, DB-backed kill switch, idempotent `clientOrderId`.
+- **TradingView** is optional — free TV tier has no webhooks; the scheduler polls every `POLL_INTERVAL_SEC` and sweeps all symbols in turn. If you later upgrade, the `/tv/webhook` route is wired.
 
 ## Quick start (no accounts required)
 
@@ -25,8 +26,18 @@ curl -s http://localhost:8000/status | python -m json.tool
 curl -s -X POST http://localhost:8000/control/tick-now | python -m json.tool
 ```
 
-`/status` should show `"paper_mode": true, "signal_mode": "rules", "real_orders_enabled": false`.
-`/control/tick-now` pulls real BTC/USDT data, runs the rules engine, and logs a paper decision (and `dry` trade if the signal isn't `hold`).
+`/status` should show `"paper_mode": true, "signal_mode": "rules", "data_source": "bybit", "real_orders_enabled": false` and the list of symbols.
+`/control/tick-now` sweeps every symbol in `TRADE_SYMBOLS` — real public data → rules engine → paper decision (and `dry` trade row if the signal isn't `hold`).
+
+## Data sources
+
+| `DATA_SOURCE` | Notes |
+|---|---|
+| `bybit` (default) | Globally accessible public API; same USDT pairs as Binance. |
+| `binance` | Largest liquidity; **geo-blocked** in US, UK, and a few other regions. |
+| `kraken` | Solid fallback when Binance/Bybit are blocked. Symbols auto-normalize (BTC/USDT works). |
+
+No API keys needed for any of them — market data is public.
 
 ## Signal modes
 

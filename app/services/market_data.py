@@ -8,7 +8,7 @@ from ta.momentum import RSIIndicator
 from ta.trend import EMAIndicator, MACD
 from ta.volatility import AverageTrueRange
 
-from app.exchange import binance_client
+from app.exchange import data_source
 from app.logging_setup import get_logger
 
 log = get_logger(__name__)
@@ -43,7 +43,7 @@ def _ohlcv_to_df(ohlcv: list[list[float]]) -> pd.DataFrame:
 
 
 def get_snapshot(symbol: str, timeframe: str = "15m", limit: int = 200) -> Snapshot:
-    ohlcv = binance_client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+    ohlcv = data_source.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     df = _ohlcv_to_df(ohlcv)
 
     close = df["close"]
@@ -57,7 +57,7 @@ def get_snapshot(symbol: str, timeframe: str = "15m", limit: int = 200) -> Snaps
     ema200 = EMAIndicator(close=close, window=200).ema_indicator()
     atr = AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range()
 
-    book = binance_client.fetch_order_book(symbol, limit=5)
+    book = data_source.fetch_order_book(symbol, limit=5)
     bid = float(book["bids"][0][0]) if book.get("bids") else float("nan")
     ask = float(book["asks"][0][0]) if book.get("asks") else float("nan")
     mid = (bid + ask) / 2 if bid and ask else float(close.iloc[-1])

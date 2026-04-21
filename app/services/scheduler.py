@@ -5,7 +5,6 @@ import json
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlmodel import select
 
 from app.config import get_settings
 from app.db import get_session
@@ -32,19 +31,22 @@ def _current_position(symbol: str) -> dict[str, Any]:
         return {"qty": pos.qty, "avg_entry": pos.avg_entry}
 
 
-async def tick(tv_alert: dict[str, Any] | None = None, source: str = "scheduler") -> dict[str, Any]:
-    settings = get_settings()
-    symbol = settings.trade_symbol
-    tf = settings.trade_timeframe
+async def _tick_symbol(
+    symbol: str, tf: str, tv_alert: dict[str, Any] | None, source: str
+) -> dict[str, Any]:
+    try:
+        snap = await asyncio.to_thread(get_snapshot, symbol, tf)
+    except Exception as exc:
+        log.error("snapshot_failed", symbol=symbol, error=str(exc))
+        return {"symbol": symbol, "status": "skipped", "reason": f"snapshot: {exc}"}
 
-    snap = await asyncio.to_thread(get_snapshot, symbol, tf)
     position = _current_position(symbol)
 
     try:
         decision = await asyncio.to_thread(signal.generate, snap.to_dict(), tv_alert, position)
     except Exception as exc:
-        log.error("signal_generation_failed", error=str(exc))
-        return {"status": "skipped", "reason": f"signal_error: {exc}"}
+        log.error("signal_generation_failed", symbol=symbol, error=str(exc))
+        return {"symbol": symbol, "status": "skipped", "reason": f"signal_error: {exc}"}
 
     with get_session() as s:
         row = Decision(
@@ -76,17 +78,46 @@ async def tick(tv_alert: dict[str, Any] | None = None, source: str = "scheduler"
     log.info(
         "tick_complete",
         decision_id=decision_id,
+        symbol=symbol,
         action=decision.action,
         status=result.status,
         message=result.message,
         source=source,
     )
     return {
+        "symbol": symbol,
         "decision_id": decision_id,
         "action": decision.action,
         "status": result.status,
         "message": result.message,
     }
+
+
+async def tick(
+    tv_alert: dict[str, Any] | None = None, source: str = "scheduler"
+) -> dict[str, Any]:
+    """Run one decision cycle across all TRADE_SYMBOLS.
+
+    A webhook-triggered tick scopes to the alert's symbol (if it's on the allowlist);
+    a scheduler tick sweeps every configured symbol serially.
+    """
+    settings = get_settings()
+    tf = settings.trade_timeframe
+
+    if tv_alert and tv_alert.get("symbol"):
+        symbols_to_run = [tv_alert["symbol"]] if tv_alert["symbol"] in settings.allowed_symbols else []
+        if not symbols_to_run:
+            log.warning("tv_alert_symbol_not_allowed", symbol=tv_alert.get("symbol"))
+            return {"status": "skipped", "reason": "symbol_not_allowed", "results": []}
+    else:
+        symbols_to_run = settings.symbols
+
+    results: list[dict[str, Any]] = []
+    for sym in symbols_to_run:
+        alert_for_sym = tv_alert if tv_alert and tv_alert.get("symbol") == sym else None
+        results.append(await _tick_symbol(sym, tf, alert_for_sym, source))
+
+    return {"status": "ok", "count": len(results), "results": results}
 
 
 async def _tv_consumer() -> None:
@@ -110,7 +141,12 @@ def start() -> None:
     sched.start()
     asyncio.get_event_loop().create_task(_tv_consumer())
     _scheduler = sched
-    log.info("scheduler_started", poll_sec=settings.poll_interval_sec)
+    log.info(
+        "scheduler_started",
+        poll_sec=settings.poll_interval_sec,
+        symbols=settings.symbols,
+        data_source=settings.data_source,
+    )
 
 
 def stop() -> None:

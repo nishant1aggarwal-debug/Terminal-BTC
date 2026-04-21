@@ -21,9 +21,11 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     log.info(
         "app_started",
-        testnet=settings.binance_testnet,
+        paper_mode=settings.paper_mode,
         live_trading=settings.live_trading,
-        symbol=settings.trade_symbol,
+        data_source=settings.data_source,
+        symbols=settings.symbols,
+        signal_mode=settings.signal_mode,
     )
     try:
         yield

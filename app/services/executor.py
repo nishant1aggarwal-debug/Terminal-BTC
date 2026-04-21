@@ -30,18 +30,18 @@ def _client_order_id(decision_id: int) -> str:
 
 
 def _paper_equity_usdt() -> float:
-    """Paper equity = starting equity + realized PnL - cost of open position.
+    """Paper equity = starting equity + realized PnL - cost of ALL open positions.
 
-    Simple model: we subtract the notional of any currently-open position from the
-    starting cash, so size calcs don't double-spend. Unrealized PnL isn't reinvested.
+    Simple model: we subtract the aggregate notional of every open position from the
+    starting cash, so size calcs across the multi-symbol loop don't double-spend.
+    Unrealized PnL isn't reinvested.
     """
     from app.models import DailyPnL
 
     settings = get_settings()
     with get_session() as s:
-        pos = s.get(Position, settings.trade_symbol)
-        open_notional = abs(pos.qty * pos.avg_entry) if pos else 0.0
-        # Sum realized PnL across all daily rows.
+        positions = s.exec(select(Position)).all()
+        open_notional = sum(abs(p.qty * p.avg_entry) for p in positions)
         rows = s.exec(select(DailyPnL)).all()
         realized = sum(r.realized_usdt for r in rows)
     return max(0.0, settings.paper_starting_equity_usdt + realized - open_notional)

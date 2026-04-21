@@ -18,7 +18,10 @@ class Settings(BaseSettings):
     # Signal generator: "rules" (default, no keys) | "claude" (requires ANTHROPIC_API_KEY) | "hold"
     signal_mode: str = "rules"
 
-    # Binance (optional — only needed when PAPER_MODE=false)
+    # Public market data source (no keys required). "bybit" | "binance" | "kraken".
+    data_source: str = "bybit"
+
+    # Binance (optional — only needed when PAPER_MODE=false AND you're executing on Binance)
     binance_api_key: str = ""
     binance_api_secret: str = ""
     binance_testnet: bool = True
@@ -36,7 +39,7 @@ class Settings(BaseSettings):
     tradingview_webhook_secret: str = "change-me"
 
     # Trading params
-    trade_symbol: str = "BTC/USDT"
+    trade_symbols: str = "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT"
     trade_market: str = "spot"  # "spot" | "futures"
     trade_timeframe: str = "15m"
     poll_interval_sec: int = 300
@@ -44,8 +47,11 @@ class Settings(BaseSettings):
     # Risk
     max_position_usdt: float = 50.0
     max_daily_loss_usdt: float = 25.0
-    max_open_positions: int = 1
-    symbol_allowlist: str = "BTC/USDT,ETH/USDT"
+    max_open_positions: int = 3
+    symbol_allowlist: str = (
+        "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,"
+        "BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT"
+    )
 
     # Infra
     database_url: str = "sqlite:///data/terminal_btc.db"
@@ -67,9 +73,21 @@ class Settings(BaseSettings):
             raise ValueError("signal_mode must be 'rules', 'claude', or 'hold'")
         return v
 
+    @field_validator("data_source")
+    @classmethod
+    def _check_data_source(cls, v: str) -> str:
+        v = v.lower()
+        if v not in {"bybit", "binance", "kraken"}:
+            raise ValueError("data_source must be 'bybit', 'binance', or 'kraken'")
+        return v
+
     @property
     def allowed_symbols(self) -> list[str]:
         return [s.strip() for s in self.symbol_allowlist.split(",") if s.strip()]
+
+    @property
+    def symbols(self) -> list[str]:
+        return [s.strip() for s in self.trade_symbols.split(",") if s.strip()]
 
     @property
     def real_orders_enabled(self) -> bool:
