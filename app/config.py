@@ -9,19 +9,28 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Anthropic
+    # Anthropic (optional — only needed when SIGNAL_MODE=claude)
     anthropic_api_key: str = ""
     claude_model: str = "claude-opus-4-7"
     claude_max_tokens: int = 1024
     daily_claude_usd_cap: float = 5.0
 
-    # Binance
+    # Signal generator: "rules" (default, no keys) | "claude" (requires ANTHROPIC_API_KEY) | "hold"
+    signal_mode: str = "rules"
+
+    # Binance (optional — only needed when PAPER_MODE=false)
     binance_api_key: str = ""
     binance_api_secret: str = ""
     binance_testnet: bool = True
 
     # Safety gates
+    # PAPER_MODE=true  -> no real orders ever, no API keys required. Uses real public data.
+    # To hit an exchange you must BOTH set PAPER_MODE=false AND LIVE_TRADING=true.
+    paper_mode: bool = True
     live_trading: bool = False
+
+    # Paper portfolio starting equity (USDT). Only used when PAPER_MODE=true.
+    paper_starting_equity_usdt: float = 1_000.0
 
     # TradingView
     tradingview_webhook_secret: str = "change-me"
@@ -50,14 +59,22 @@ class Settings(BaseSettings):
             raise ValueError("trade_market must be 'spot' or 'futures'")
         return v
 
+    @field_validator("signal_mode")
+    @classmethod
+    def _check_signal_mode(cls, v: str) -> str:
+        v = v.lower()
+        if v not in {"rules", "claude", "hold"}:
+            raise ValueError("signal_mode must be 'rules', 'claude', or 'hold'")
+        return v
+
     @property
     def allowed_symbols(self) -> list[str]:
         return [s.strip() for s in self.symbol_allowlist.split(",") if s.strip()]
 
     @property
     def real_orders_enabled(self) -> bool:
-        """Real orders require BOTH flags: live_trading=True AND testnet=False."""
-        return self.live_trading and not self.binance_testnet
+        """Real orders require: paper_mode=False AND live_trading=True AND testnet=False."""
+        return (not self.paper_mode) and self.live_trading and (not self.binance_testnet)
 
 
 @lru_cache(maxsize=1)

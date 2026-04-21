@@ -29,6 +29,24 @@ def _client_order_id(decision_id: int) -> str:
     return "tb-" + hashlib.sha1(str(decision_id).encode()).hexdigest()[:20]
 
 
+def _paper_equity_usdt() -> float:
+    """Paper equity = starting equity + realized PnL - cost of open position.
+
+    Simple model: we subtract the notional of any currently-open position from the
+    starting cash, so size calcs don't double-spend. Unrealized PnL isn't reinvested.
+    """
+    from app.models import DailyPnL
+
+    settings = get_settings()
+    with get_session() as s:
+        pos = s.get(Position, settings.trade_symbol)
+        open_notional = abs(pos.qty * pos.avg_entry) if pos else 0.0
+        # Sum realized PnL across all daily rows.
+        rows = s.exec(select(DailyPnL)).all()
+        realized = sum(r.realized_usdt for r in rows)
+    return max(0.0, settings.paper_starting_equity_usdt + realized - open_notional)
+
+
 def _update_position(symbol: str, side: str, amount: float, price: float) -> None:
     with get_session() as s:
         pos = s.get(Position, symbol)
@@ -71,7 +89,10 @@ def execute(
                 ok=True, status=existing.status, trade_id=existing.id, message="idempotent_replay"
             )
 
-    equity = binance_client.quote_equity_usdt()
+    if settings.paper_mode:
+        equity = _paper_equity_usdt()
+    else:
+        equity = binance_client.quote_equity_usdt()
     notional = max(0.0, equity * size_pct)
 
     approval = risk.check(action=action, symbol=symbol, notional_usdt=notional)

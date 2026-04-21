@@ -11,7 +11,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import claude_signal, executor
+from app.services import executor, signal
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -41,12 +41,10 @@ async def tick(tv_alert: dict[str, Any] | None = None, source: str = "scheduler"
     position = _current_position(symbol)
 
     try:
-        decision = await asyncio.to_thread(
-            claude_signal.generate_decision, snap.to_dict(), tv_alert, position
-        )
-    except claude_signal.ClaudeCostCapExceeded as exc:
-        log.warning("tick_skipped_cost_cap", error=str(exc))
-        return {"status": "skipped", "reason": "cost_cap"}
+        decision = await asyncio.to_thread(signal.generate, snap.to_dict(), tv_alert, position)
+    except Exception as exc:
+        log.error("signal_generation_failed", error=str(exc))
+        return {"status": "skipped", "reason": f"signal_error: {exc}"}
 
     with get_session() as s:
         row = Decision(
@@ -59,7 +57,7 @@ async def tick(tv_alert: dict[str, Any] | None = None, source: str = "scheduler"
             stop_loss=decision.stop_loss,
             take_profit=decision.take_profit,
             confidence=decision.confidence,
-            reasoning=decision.reasoning,
+            reasoning=f"[{decision.backend}] {decision.reasoning}",
             claude_usd_cost=decision.usd_cost,
         )
         s.add(row)

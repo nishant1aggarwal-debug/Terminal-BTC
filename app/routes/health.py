@@ -30,6 +30,8 @@ async def status() -> dict[str, Any]:
         pnl = s.get(DailyPnL, date.today())
         pos = s.get(Position, settings.trade_symbol)
     return {
+        "paper_mode": settings.paper_mode,
+        "signal_mode": settings.signal_mode,
         "testnet": settings.binance_testnet,
         "live_trading": settings.live_trading,
         "real_orders_enabled": settings.real_orders_enabled,
@@ -37,7 +39,8 @@ async def status() -> dict[str, Any]:
         "market": settings.trade_market,
         "timeframe": settings.trade_timeframe,
         "poll_interval_sec": settings.poll_interval_sec,
-        "model": settings.claude_model,
+        "claude_model": settings.claude_model if settings.anthropic_api_key else None,
+        "paper_starting_equity_usdt": settings.paper_starting_equity_usdt if settings.paper_mode else None,
         "kill_switch": {"enabled": bool(ks.enabled) if ks else False, "reason": ks.reason if ks else ""},
         "position": {"qty": pos.qty, "avg_entry": pos.avg_entry} if pos else {"qty": 0.0, "avg_entry": 0.0},
         "today": {

@@ -11,7 +11,34 @@ from app.logging_setup import get_logger
 log = get_logger(__name__)
 
 
-def _build_client(settings: Settings) -> ccxt.Exchange:
+# ---- Public (market data) client ----------------------------------------------------
+# Always hits REAL Binance mainnet, no API keys, never testnet. This is the single source
+# of truth for prices/indicators so paper trades are evaluated against the real market.
+
+
+@lru_cache(maxsize=1)
+def get_public_client() -> ccxt.Exchange:
+    settings = get_settings()
+    exchange_id = "binanceusdm" if settings.trade_market == "futures" else "binance"
+    klass = getattr(ccxt, exchange_id)
+    client = klass({"enableRateLimit": True})
+    log.info("binance_public_client_init", exchange=exchange_id)
+    return client
+
+
+def fetch_ohlcv(symbol: str, timeframe: str = "15m", limit: int = 100) -> list[list[float]]:
+    return get_public_client().fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+
+
+def fetch_order_book(symbol: str, limit: int = 10) -> dict[str, Any]:
+    return get_public_client().fetch_order_book(symbol, limit=limit)
+
+
+# ---- Authed (order) client ----------------------------------------------------------
+# Only used when PAPER_MODE=false AND LIVE_TRADING=true. Respects BINANCE_TESTNET.
+
+
+def _build_authed(settings: Settings) -> ccxt.Exchange:
     exchange_id = "binanceusdm" if settings.trade_market == "futures" else "binance"
     klass = getattr(ccxt, exchange_id)
     client = klass(
@@ -25,7 +52,7 @@ def _build_client(settings: Settings) -> ccxt.Exchange:
     if settings.binance_testnet:
         client.set_sandbox_mode(True)
     log.info(
-        "binance_client_init",
+        "binance_authed_client_init",
         exchange=exchange_id,
         testnet=settings.binance_testnet,
         market=settings.trade_market,
@@ -34,24 +61,16 @@ def _build_client(settings: Settings) -> ccxt.Exchange:
 
 
 @lru_cache(maxsize=1)
-def get_client() -> ccxt.Exchange:
-    return _build_client(get_settings())
-
-
-def fetch_ohlcv(symbol: str, timeframe: str = "15m", limit: int = 100) -> list[list[float]]:
-    return get_client().fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-
-
-def fetch_order_book(symbol: str, limit: int = 10) -> dict[str, Any]:
-    return get_client().fetch_order_book(symbol, limit=limit)
+def get_authed_client() -> ccxt.Exchange:
+    return _build_authed(get_settings())
 
 
 def fetch_balance() -> dict[str, Any]:
-    return get_client().fetch_balance()
+    return get_authed_client().fetch_balance()
 
 
 def fetch_positions(symbols: list[str] | None = None) -> list[dict[str, Any]]:
-    client = get_client()
+    client = get_authed_client()
     if not hasattr(client, "fetch_positions"):
         return []
     try:
@@ -70,17 +89,16 @@ def create_order(
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if client_order_id:
-        # Binance accepts both keys depending on product; ccxt normalizes.
         params["clientOrderId"] = client_order_id
         params["newClientOrderId"] = client_order_id
-    return get_client().create_order(symbol, order_type, side, amount, price, params)
+    return get_authed_client().create_order(symbol, order_type, side, amount, price, params)
 
 
 def quote_equity_usdt() -> float:
-    """Available quote-currency balance (USDT)."""
+    """Live quote-currency balance (USDT). Paper mode short-circuits before this is called."""
     try:
         bal = fetch_balance()
-    except Exception as exc:  # network or auth
+    except Exception as exc:
         log.warning("fetch_balance_failed", error=str(exc))
         return 0.0
     free = (bal.get("free") or {}).get("USDT")
