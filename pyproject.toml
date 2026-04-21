@@ -1,0 +1,38 @@
+[project]
+name = "terminal-btc"
+version = "0.1.0"
+description = "Claude-driven BTC trading on Binance with TradingView alert context."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "ccxt>=4.4",
+    "anthropic>=0.40",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlmodel>=0.0.22",
+    "apscheduler>=3.10",
+    "ta>=0.11",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

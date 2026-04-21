@@ -1,0 +1,33 @@
+// Terminal-BTC — TradingView alert template
+// Copy this into a Pine Script strategy/indicator, then create an alert whose
+// "Message" field is exactly the JSON below (TradingView will substitute {{...}} placeholders).
+// Set the alert "Webhook URL" to https://<your-ngrok-or-public-host>/tv/webhook
+//
+// Replace REPLACE_ME_SECRET with the value of TRADINGVIEW_WEBHOOK_SECRET in your .env.
+//
+// {
+//   "secret": "REPLACE_ME_SECRET",
+//   "symbol": "{{ticker}}",
+//   "price": {{close}},
+//   "alert": "ema_cross",
+//   "tf": "{{interval}}",
+//   "ts": "{{time}}"
+// }
+
+//@version=5
+indicator("Terminal-BTC EMA Cross", overlay=true)
+
+fastLen = input.int(20, "Fast EMA")
+slowLen = input.int(50, "Slow EMA")
+
+fast = ta.ema(close, fastLen)
+slow = ta.ema(close, slowLen)
+
+plot(fast, color=color.new(color.green, 0), title="EMA fast")
+plot(slow, color=color.new(color.red, 0), title="EMA slow")
+
+bullCross = ta.crossover(fast, slow)
+bearCross = ta.crossunder(fast, slow)
+
+alertcondition(bullCross, title="EMA bull cross", message='{"secret":"REPLACE_ME_SECRET","symbol":"{{ticker}}","price":{{close}},"alert":"ema_bull_cross","tf":"{{interval}}","ts":"{{time}}"}')
+alertcondition(bearCross, title="EMA bear cross", message='{"secret":"REPLACE_ME_SECRET","symbol":"{{ticker}}","price":{{close}},"alert":"ema_bear_cross","tf":"{{interval}}","ts":"{{time}}"}')
