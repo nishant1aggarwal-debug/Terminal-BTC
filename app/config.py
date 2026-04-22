@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # Cross vs isolated margin: in paper mode this is informational + surfaced in the UI.
     # In live mode, ccxt applies it to new positions.
     margin_mode: str = "isolated"  # "cross" | "isolated"
-    leverage: float = 3.0          # 1x = spot-like; max 20x on most futures venues
+    leverage: float = 10.0         # Bybit futures default for this system
 
     # Per-trade risk cap: fraction of equity risked on stop-loss distance.
     # e.g. risk_per_trade_pct=0.01 + 2% stop-distance -> 50% notional (capped by
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
         "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,"
         "BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT"
     )
-    trade_market: str = "spot"  # "spot" | "futures"
+    trade_market: str = "futures"  # "spot" | "futures"
     trade_timeframe: str = "15m"
     poll_interval_sec: int = 300
 
@@ -67,10 +67,16 @@ class Settings(BaseSettings):
     # funding every 8h (00:00, 08:00, 16:00 UTC); we approximate with a flat rate.
     funding_rate_8h_bps: float = 1.0  # 0.01% of notional every 8 hours
 
-    # Risk
-    max_position_usdt: float = 250.0      # scales with 5k starting equity
-    max_daily_loss_usdt: float = 125.0
-    max_open_positions: int = 5
+    # Risk — Bybit-futures-style defaults: 8 concurrent positions, 10x leverage,
+    # $500 max notional per position (= ~1 BTC on 10x from $5000 margin × leverage).
+    max_position_usdt: float = 500.0
+    max_daily_loss_usdt: float = 250.0
+    max_open_positions: int = 8
+
+    # Signal threshold: composite multi-indicator confidence must exceed this
+    # for a buy/sell to fire. 0.55 is permissive, 0.70 is strict. Lower =
+    # more trades.
+    min_signal_confidence: float = 0.55
     # Hard filter: refuses anything outside this list even if TradingView sends it.
     # Covers the 16 actively traded + 9 extra high-volume alts (ATOM, UNI, FIL, ARB, OP,
     # SUI, SEI, INJ, HBAR) you can promote by adding them to TRADE_SYMBOLS.

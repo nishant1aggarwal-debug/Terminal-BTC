@@ -4,9 +4,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 import pandas as pd
-from ta.momentum import RSIIndicator
-from ta.trend import EMAIndicator, MACD
-from ta.volatility import AverageTrueRange
+from ta.momentum import RSIIndicator, StochRSIIndicator
+from ta.trend import ADXIndicator, EMAIndicator, MACD
+from ta.volatility import AverageTrueRange, BollingerBands
 
 from app.exchange import data_source
 from app.logging_setup import get_logger
@@ -27,6 +27,14 @@ class Snapshot:
     ema_50: float
     ema_200: float
     atr_14: float
+    # New indicators (all standard TradingView defaults):
+    bb_upper: float
+    bb_middle: float
+    bb_lower: float
+    bb_pct: float          # where price sits inside the bands, 0..1
+    stoch_rsi_k: float     # Stochastic RSI %K (0..100)
+    stoch_rsi_d: float     # %D
+    adx_14: float          # trend strength; >20 = trending, <20 = choppy
     bid: float
     ask: float
     spread_bps: float
@@ -56,6 +64,9 @@ def get_snapshot(symbol: str, timeframe: str = "15m", limit: int = 200) -> Snaps
     ema50 = EMAIndicator(close=close, window=50).ema_indicator()
     ema200 = EMAIndicator(close=close, window=200).ema_indicator()
     atr = AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range()
+    bb = BollingerBands(close=close, window=20, window_dev=2)
+    stoch_rsi = StochRSIIndicator(close=close, window=14, smooth1=3, smooth2=3)
+    adx = ADXIndicator(high=high, low=low, close=close, window=14).adx()
 
     book = data_source.fetch_order_book(symbol, limit=5)
     bid = float(book["bids"][0][0]) if book.get("bids") else float("nan")
@@ -69,10 +80,16 @@ def get_snapshot(symbol: str, timeframe: str = "15m", limit: int = 200) -> Snaps
         .to_dict(orient="records")
     )
 
+    bb_up = float(bb.bollinger_hband().iloc[-1])
+    bb_mid = float(bb.bollinger_mavg().iloc[-1])
+    bb_lo = float(bb.bollinger_lband().iloc[-1])
+    last_close = float(close.iloc[-1])
+    bb_pct = (last_close - bb_lo) / (bb_up - bb_lo) if bb_up > bb_lo else 0.5
+
     snap = Snapshot(
         symbol=symbol,
         timeframe=timeframe,
-        last_close=float(close.iloc[-1]),
+        last_close=last_close,
         rsi_14=float(rsi.iloc[-1]),
         macd=float(macd.macd().iloc[-1]),
         macd_signal=float(macd.macd_signal().iloc[-1]),
@@ -81,6 +98,13 @@ def get_snapshot(symbol: str, timeframe: str = "15m", limit: int = 200) -> Snaps
         ema_50=float(ema50.iloc[-1]),
         ema_200=float(ema200.iloc[-1]),
         atr_14=float(atr.iloc[-1]),
+        bb_upper=bb_up,
+        bb_middle=bb_mid,
+        bb_lower=bb_lo,
+        bb_pct=float(bb_pct),
+        stoch_rsi_k=float(stoch_rsi.stochrsi_k().iloc[-1] * 100.0),
+        stoch_rsi_d=float(stoch_rsi.stochrsi_d().iloc[-1] * 100.0),
+        adx_14=float(adx.iloc[-1]),
         bid=bid,
         ask=ask,
         spread_bps=float(spread_bps),

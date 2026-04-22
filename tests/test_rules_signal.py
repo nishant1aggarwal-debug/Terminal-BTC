@@ -11,11 +11,19 @@ def _snap(**overrides):
         "rsi_14": 55.0,
         "macd": 10.0,
         "macd_signal": 5.0,
-        "macd_hist": 5.0,
+        "macd_hist": 300.0,  # == ATR so MACD score contributes full +0.20
         "ema_20": 60_100.0,
         "ema_50": 59_800.0,
         "ema_200": 59_000.0,
         "atr_14": 300.0,
+        # Defaults compatible with the multi-indicator engine (ADX>20, neutral BB/StochRSI).
+        "bb_upper": 60_500.0,
+        "bb_middle": 60_000.0,
+        "bb_lower": 59_500.0,
+        "bb_pct": 0.6,
+        "stoch_rsi_k": 60.0,
+        "stoch_rsi_d": 55.0,
+        "adx_14": 28.0,
         "bid": 59_999.0,
         "ask": 60_001.0,
         "spread_bps": 1.5,
@@ -36,10 +44,13 @@ def test_short_on_trend_down():
     d = rules_signal.generate_decision(
         _snap(
             rsi_14=40.0,
-            macd_hist=-5.0,
+            macd_hist=-300.0,
             ema_20=59_000.0,
             ema_50=59_500.0,
             ema_200=60_000.0,
+            bb_pct=0.2,
+            stoch_rsi_k=40.0,
+            stoch_rsi_d=45.0,
         )
     )
     assert d.action == "sell"
@@ -69,10 +80,13 @@ def test_exit_long_when_trend_flips_down():
     d = rules_signal.generate_decision(
         _snap(
             rsi_14=40.0,
-            macd_hist=-5.0,
+            macd_hist=-300.0,
             ema_20=59_000.0,
             ema_50=59_500.0,
             ema_200=60_000.0,
+            bb_pct=0.2,
+            stoch_rsi_k=40.0,
+            stoch_rsi_d=45.0,
         ),
         position={"qty": 0.001, "avg_entry": 60_000.0},
     )

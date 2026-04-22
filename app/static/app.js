@@ -151,9 +151,11 @@ function renderStatusFlags(ov) {
   const host = document.getElementById("status-flags");
   const pills = [];
   pills.push(`<span class="pill ${ov.paper_mode ? "ok" : "bad"}">${ov.paper_mode ? "PAPER" : "LIVE"}</span>`);
+  const marketLabel = (ov.market || "spot").toUpperCase();
+  pills.push(`<span class="pill">${marketLabel}${ov.leverage ? " · " + ov.leverage + "x" : ""}${ov.margin_mode ? " · " + ov.margin_mode : ""}</span>`);
   pills.push(`<span class="pill">${ov.signal_mode}</span>`);
   pills.push(`<span class="pill">${ov.data_source} · ${ov.timeframe}</span>`);
-  pills.push(`<span class="pill">${(ov.symbols || []).length} symbols</span>`);
+  pills.push(`<span class="pill">${(ov.symbols || []).length} symbols · max ${ov.max_open_positions || "—"} open</span>`);
   if (ov.kill_switch?.enabled) {
     pills.push(`<span class="pill bad">KILL SWITCH</span>`);
   }

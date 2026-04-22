@@ -25,9 +25,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pandas as pd
-from ta.momentum import RSIIndicator
-from ta.trend import EMAIndicator, MACD
-from ta.volatility import AverageTrueRange
+from ta.momentum import RSIIndicator, StochRSIIndicator
+from ta.trend import ADXIndicator, EMAIndicator, MACD
+from ta.volatility import AverageTrueRange, BollingerBands
 
 from app.config import get_settings
 from app.db import get_session
@@ -60,7 +60,13 @@ def _snapshot_at(df: pd.DataFrame, i: int, symbol: str, timeframe: str) -> dict[
     ema50 = EMAIndicator(close=close, window=50).ema_indicator()
     ema200 = EMAIndicator(close=close, window=200).ema_indicator()
     atr = AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range()
+    bb = BollingerBands(close=close, window=20, window_dev=2)
+    stoch_rsi = StochRSIIndicator(close=close, window=14, smooth1=3, smooth2=3)
+    adx = ADXIndicator(high=high, low=low, close=close, window=14).adx()
     lc = float(close.iloc[-1])
+    bb_up = float(bb.bollinger_hband().iloc[-1])
+    bb_lo = float(bb.bollinger_lband().iloc[-1])
+    bb_pct = (lc - bb_lo) / (bb_up - bb_lo) if bb_up > bb_lo else 0.5
     return {
         "symbol": symbol,
         "timeframe": timeframe,
@@ -73,6 +79,13 @@ def _snapshot_at(df: pd.DataFrame, i: int, symbol: str, timeframe: str) -> dict[
         "ema_50": float(ema50.iloc[-1]),
         "ema_200": float(ema200.iloc[-1]),
         "atr_14": float(atr.iloc[-1]),
+        "bb_upper": bb_up,
+        "bb_middle": float(bb.bollinger_mavg().iloc[-1]),
+        "bb_lower": bb_lo,
+        "bb_pct": float(bb_pct),
+        "stoch_rsi_k": float(stoch_rsi.stochrsi_k().iloc[-1] * 100.0),
+        "stoch_rsi_d": float(stoch_rsi.stochrsi_d().iloc[-1] * 100.0),
+        "adx_14": float(adx.iloc[-1]),
         "bid": lc, "ask": lc,  # assume tight book in historical data
         "spread_bps": 1.0,
         "recent_candles": [],
