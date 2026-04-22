@@ -12,18 +12,25 @@ Paper-trading bot for BTC, ETH, SOL, XRP, and other high-volume USDT pairs again
 
 ## Get a clickable dashboard URL (no coding, ~3 minutes)
 
-**Option A — Render.com (recommended, always-on, free tier).**
-This repo ships a `render.yaml` that Render reads automatically.
+**One-click deploy — click the button below:**
 
-1. Go to https://dashboard.render.com/select-repo and sign in with GitHub.
-2. Pick this repo; Render auto-detects `render.yaml` and prefills everything.
-3. Click **Apply**. ~2 minutes later you get a permanent `https://terminal-btc-XXXX.onrender.com/` URL — open it, that's your dashboard.
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/nishant1aggarwal-debug/terminal-btc&branch=claude/tradingview-live-trading-qx2aR)
 
-**Option B — Railway** (same idea). Go to https://railway.app/new, pick the repo, hit deploy — it uses the `Procfile`.
+That link opens Render's blueprint page with the repo + branch already filled in. Sign in (GitHub, Google, or email), then click **Apply**. ~2 minutes later Render gives you a permanent `https://terminal-btc-XXXX.onrender.com/` URL — open it in any browser, that's your dashboard.
 
-**Option C — Fly.io** (docker-based). `fly launch` from this repo picks up the `Dockerfile`.
+**Alternate hosts (same idea):**
+- **Railway** — https://railway.app/new → pick this repo → deploy. Uses the `Procfile`.
+- **Fly.io** — `fly launch` from this repo picks up the `Dockerfile`.
 
-Any of these give you a real, public URL with the dashboard, scheduler, and paper trading running 24/7. Because defaults are paper mode + rules engine + public Bybit data, **no API keys are required** to get it live.
+All three give you a public, always-on dashboard with the scheduler, paper trading, and backtester running 24/7. Defaults are paper mode + rules engine + public Bybit data, so **no API keys are required** to get live.
+
+### Troubleshooting the Render deploy
+
+| Error | Fix |
+|---|---|
+| `disks are not supported for free tier services` | You're on an older commit — pick branch `claude/tradingview-live-trading-qx2aR`; the latest `render.yaml` there has no disk mount. |
+| Blueprint page won't load | Use the direct URL above instead of the dashboard's "New Blueprint" flow. |
+| Wrong branch picked | On the blueprint page, change **Branch** to `claude/tradingview-live-trading-qx2aR` and click **Retry**. |
 
 ## Quick start (local, if you have Python)
 
