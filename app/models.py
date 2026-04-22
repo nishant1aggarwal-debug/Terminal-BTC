@@ -40,13 +40,44 @@ class Trade(SQLModel, table=True):
     status: str = "pending"  # pending | filled | rejected | dry
     filled_amount: float = 0.0
     avg_price: Optional[float] = None
+    commission_usdt: float = 0.0
+    slippage_usdt: float = 0.0
     raw_response: Optional[str] = None
+
+
+class ClosedTrade(SQLModel, table=True):
+    """A realized round-trip — entry and exit reconciled into one row.
+
+    Emitted every time a fill brings a Position's qty across zero (either
+    all the way flat, or into the opposite direction). Powers win-rate,
+    profit-factor, and average-win/loss stats.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    closed_at: datetime = Field(default_factory=_utcnow, index=True)
+    symbol: str = Field(index=True)
+    side: str  # "long" | "short" (the direction of the position that was closed)
+    qty: float
+    entry_price: float
+    exit_price: float
+    entry_ts: datetime
+    gross_pnl_usdt: float
+    commission_usdt: float = 0.0
+    funding_usdt: float = 0.0
+    net_pnl_usdt: float = 0.0
+    pnl_pct: float = 0.0  # on entry notional
+    hold_seconds: int = 0
+    entry_decision_id: Optional[int] = None
+    exit_decision_id: Optional[int] = None
+    entry_confidence: Optional[float] = None
 
 
 class Position(SQLModel, table=True):
     symbol: str = Field(primary_key=True)
     qty: float = 0.0
     avg_entry: float = 0.0
+    opened_at: Optional[datetime] = None  # when qty went from 0 to non-zero
+    opened_decision_id: Optional[int] = None
+    opened_confidence: Optional[float] = None
     updated_at: datetime = Field(default_factory=_utcnow)
 
 

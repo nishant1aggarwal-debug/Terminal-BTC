@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import executor, signal
+from app.services import executor, funding, signal
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -74,6 +74,7 @@ async def _tick_symbol(
         decision.action,
         decision.size_pct,
         snap.last_close,
+        decision.confidence,
     )
     log.info(
         "tick_complete",
@@ -131,6 +132,12 @@ async def _tv_consumer() -> None:
             _tv_queue.task_done()
 
 
+async def _funding_job() -> None:
+    """Fires every hour; only charges when UTC hour is 0/8/16."""
+    if funding.should_charge_now():
+        await asyncio.to_thread(funding.charge_funding)
+
+
 def start() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -138,6 +145,8 @@ def start() -> None:
     settings = get_settings()
     sched = AsyncIOScheduler()
     sched.add_job(tick, "interval", seconds=settings.poll_interval_sec, id="tick", max_instances=1)
+    # Check funding every minute — job no-ops unless we're at an 8h boundary.
+    sched.add_job(_funding_job, "interval", seconds=60, id="funding", max_instances=1)
     sched.start()
     asyncio.get_event_loop().create_task(_tv_consumer())
     _scheduler = sched

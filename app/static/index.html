@@ -65,6 +65,56 @@
       <svg id="equity-chart" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
     </section>
 
+    <section class="panel" id="promote-banner" style="display:none;">
+      <div class="promote-card">
+        <div class="promote-icon">✓</div>
+        <div>
+          <h3>System is ready to go live</h3>
+          <p id="promote-text">Win rate + profit factor crossed the promotion threshold.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Performance (all closed trades)</h2>
+        <span class="muted" id="stats-count">0 trades</span>
+      </div>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-label">Win rate</div><div class="stat-value" id="stat-winrate">—</div><div class="stat-sub" id="stat-wins-losses">—</div></div>
+        <div class="stat"><div class="stat-label">Profit factor</div><div class="stat-value" id="stat-pf">—</div><div class="stat-sub">wins ÷ losses</div></div>
+        <div class="stat"><div class="stat-label">Expectancy</div><div class="stat-value" id="stat-expectancy">—</div><div class="stat-sub">per trade</div></div>
+        <div class="stat"><div class="stat-label">Avg win</div><div class="stat-value pos" id="stat-avgwin">—</div><div class="stat-sub" id="stat-avghold">—</div></div>
+        <div class="stat"><div class="stat-label">Avg loss</div><div class="stat-value neg" id="stat-avgloss">—</div><div class="stat-sub">per losing trade</div></div>
+        <div class="stat"><div class="stat-label">Max drawdown</div><div class="stat-value neg" id="stat-dd">—</div><div class="stat-sub" id="stat-dd-pct">—</div></div>
+        <div class="stat"><div class="stat-label">Commissions paid</div><div class="stat-value neg" id="stat-commission">—</div><div class="stat-sub">total fees</div></div>
+        <div class="stat"><div class="stat-label">Funding paid</div><div class="stat-value" id="stat-funding">—</div><div class="stat-sub">futures only</div></div>
+      </div>
+      <div class="progress-wrap">
+        <div class="progress-label">
+          <span>Promotion gate (target 70% win rate over 20+ trades, PF ≥ 1.5)</span>
+          <span id="promote-progress-text" class="muted">—</span>
+        </div>
+        <div class="progress-bar"><div class="progress-fill" id="promote-progress"></div></div>
+      </div>
+      <table class="data-table" id="by-symbol-table" style="margin-top: 14px;">
+        <thead>
+          <tr><th>Symbol</th><th class="num">Trades</th><th class="num">Win rate</th><th class="num">Net P&L</th></tr>
+        </thead>
+        <tbody><tr><td colspan="4" class="muted">no closed trades yet</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Latest signals — copy to your exchange</h2>
+        <span class="muted" id="signals-count">0</span>
+      </div>
+      <div id="signals-cards" class="signals-grid">
+        <div class="muted" style="padding: 20px;">no actionable signals yet — let the scheduler run a few ticks.</div>
+      </div>
+    </section>
+
     <section class="grid-two">
       <div class="panel">
         <div class="section-head">

@@ -10,7 +10,22 @@ Paper-trading bot for BTC, ETH, SOL, XRP, and other high-volume USDT pairs again
 - **Risk gates**: per-trade cap, daily loss cap, max concurrent positions, symbol allowlist, DB-backed kill switch, idempotent `clientOrderId`.
 - **TradingView** is optional — free TV tier has no webhooks; the scheduler polls every `POLL_INTERVAL_SEC` and sweeps all symbols in turn. If you later upgrade, the `/tv/webhook` route is wired.
 
-## Quick start (no accounts required)
+## Get a clickable dashboard URL (no coding, ~3 minutes)
+
+**Option A — Render.com (recommended, always-on, free tier).**
+This repo ships a `render.yaml` that Render reads automatically.
+
+1. Go to https://dashboard.render.com/select-repo and sign in with GitHub.
+2. Pick this repo; Render auto-detects `render.yaml` and prefills everything.
+3. Click **Apply**. ~2 minutes later you get a permanent `https://terminal-btc-XXXX.onrender.com/` URL — open it, that's your dashboard.
+
+**Option B — Railway** (same idea). Go to https://railway.app/new, pick the repo, hit deploy — it uses the `Procfile`.
+
+**Option C — Fly.io** (docker-based). `fly launch` from this repo picks up the `Dockerfile`.
+
+Any of these give you a real, public URL with the dashboard, scheduler, and paper trading running 24/7. Because defaults are paper mode + rules engine + public Bybit data, **no API keys are required** to get it live.
+
+## Quick start (local, if you have Python)
 
 ```bash
 python -m venv .venv && source .venv/bin/activate

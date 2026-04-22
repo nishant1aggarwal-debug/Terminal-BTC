@@ -15,7 +15,7 @@ from sqlmodel import desc, select
 
 from app.config import get_settings
 from app.db import get_session
-from app.models import DailyPnL, Decision, KillSwitch, Position, Trade
+from app.models import ClosedTrade, DailyPnL, Decision, KillSwitch, Position, Trade
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -75,6 +75,12 @@ async def overview() -> dict[str, Any]:
         "signal_mode": settings.signal_mode,
         "data_source": settings.data_source,
         "timeframe": settings.trade_timeframe,
+        "market": settings.trade_market,
+        "margin_mode": settings.margin_mode if settings.trade_market == "futures" else None,
+        "leverage": settings.leverage if settings.trade_market == "futures" else None,
+        "risk_per_trade_pct": settings.risk_per_trade_pct,
+        "max_position_usdt": settings.max_position_usdt,
+        "max_open_positions": settings.max_open_positions,
         "symbols": settings.symbols,
         "kill_switch": {
             "enabled": bool(ks.enabled) if ks else False,
@@ -173,55 +179,175 @@ async def decisions(limit: int = Query(50, ge=1, le=500)) -> list[dict[str, Any]
     return out
 
 
+@router.get("/stats")
+async def stats() -> dict[str, Any]:
+    """Win rate, profit factor, drawdown, and per-symbol breakdown.
+
+    Everything is derived from ClosedTrade rows (round-trips) — so stats
+    only include trades where entry and exit are both realized.
+    """
+    settings = get_settings()
+    with get_session() as s:
+        closed = s.exec(select(ClosedTrade).order_by(ClosedTrade.closed_at)).all()
+
+    n = len(closed)
+    wins = [t for t in closed if t.net_pnl_usdt > 0]
+    losses = [t for t in closed if t.net_pnl_usdt < 0]
+    win_rate = (len(wins) / n * 100.0) if n else 0.0
+    gross_wins = sum(t.net_pnl_usdt for t in wins)
+    gross_losses = -sum(t.net_pnl_usdt for t in losses)  # positive magnitude
+    profit_factor = (gross_wins / gross_losses) if gross_losses > 0 else (float("inf") if gross_wins > 0 else 0.0)
+    avg_win = (gross_wins / len(wins)) if wins else 0.0
+    avg_loss = (-gross_losses / len(losses)) if losses else 0.0
+    expectancy = (sum(t.net_pnl_usdt for t in closed) / n) if n else 0.0
+    avg_hold_min = (sum(t.hold_seconds for t in closed) / n / 60.0) if n else 0.0
+    total_commission = sum(t.commission_usdt for t in closed)
+    total_funding = sum(t.funding_usdt for t in closed)
+
+    # Max drawdown on cumulative equity curve.
+    peak = settings.paper_starting_equity_usdt
+    eq = peak
+    max_dd = 0.0
+    for t in closed:
+        eq += t.net_pnl_usdt
+        peak = max(peak, eq)
+        dd = peak - eq
+        if dd > max_dd:
+            max_dd = dd
+    max_dd_pct = (max_dd / peak * 100.0) if peak else 0.0
+
+    # Per-symbol breakdown.
+    by_symbol: dict[str, dict[str, Any]] = {}
+    for t in closed:
+        row = by_symbol.setdefault(
+            t.symbol,
+            {"symbol": t.symbol, "trades": 0, "wins": 0, "losses": 0, "pnl_usdt": 0.0},
+        )
+        row["trades"] += 1
+        row["pnl_usdt"] += t.net_pnl_usdt
+        if t.net_pnl_usdt > 0:
+            row["wins"] += 1
+        elif t.net_pnl_usdt < 0:
+            row["losses"] += 1
+    for row in by_symbol.values():
+        row["win_rate_pct"] = (row["wins"] / row["trades"] * 100.0) if row["trades"] else 0.0
+    symbol_rows = sorted(by_symbol.values(), key=lambda r: r["pnl_usdt"], reverse=True)
+
+    # Promote-to-live gate: only meaningful past 20 trades.
+    ready_for_live = n >= 20 and win_rate >= 70.0 and profit_factor >= 1.5
+
+    return {
+        "trades": n,
+        "wins": len(wins),
+        "losses": len(losses),
+        "win_rate_pct": win_rate,
+        "profit_factor": profit_factor if profit_factor != float("inf") else None,
+        "profit_factor_inf": profit_factor == float("inf"),
+        "avg_win_usdt": avg_win,
+        "avg_loss_usdt": avg_loss,
+        "expectancy_usdt": expectancy,
+        "avg_hold_minutes": avg_hold_min,
+        "total_net_pnl_usdt": sum(t.net_pnl_usdt for t in closed),
+        "total_commission_usdt": total_commission,
+        "total_funding_usdt": total_funding,
+        "max_drawdown_usdt": max_dd,
+        "max_drawdown_pct": max_dd_pct,
+        "by_symbol": symbol_rows,
+        "ready_for_live": ready_for_live,
+        "min_trades_for_promotion": 20,
+        "min_win_rate_for_promotion_pct": 70.0,
+        "min_profit_factor_for_promotion": 1.5,
+    }
+
+
+@router.get("/closed-trades")
+async def closed_trades(limit: int = Query(50, ge=1, le=500)) -> list[dict[str, Any]]:
+    with get_session() as s:
+        rows = s.exec(select(ClosedTrade).order_by(desc(ClosedTrade.closed_at)).limit(limit)).all()
+    return [
+        {
+            "id": t.id,
+            "closed_at": t.closed_at.isoformat(),
+            "entry_ts": t.entry_ts.isoformat(),
+            "symbol": t.symbol,
+            "side": t.side,
+            "qty": t.qty,
+            "entry_price": t.entry_price,
+            "exit_price": t.exit_price,
+            "gross_pnl_usdt": t.gross_pnl_usdt,
+            "commission_usdt": t.commission_usdt,
+            "funding_usdt": t.funding_usdt,
+            "net_pnl_usdt": t.net_pnl_usdt,
+            "pnl_pct": t.pnl_pct,
+            "hold_seconds": t.hold_seconds,
+            "entry_confidence": t.entry_confidence,
+        }
+        for t in rows
+    ]
+
+
+@router.get("/signals/latest")
+async def latest_signals(limit: int = Query(20, ge=1, le=100)) -> list[dict[str, Any]]:
+    """Recent actionable (non-hold) signals, formatted for manual copy to your exchange.
+
+    Each row is a ready-to-place order: symbol, side, entry, SL, TP, size %, confidence.
+    """
+    with get_session() as s:
+        rows = s.exec(
+            select(Decision)
+            .where(Decision.action != "hold")
+            .order_by(desc(Decision.ts))
+            .limit(limit)
+        ).all()
+    out: list[dict[str, Any]] = []
+    for d in rows:
+        last_close = None
+        try:
+            last_close = float(json.loads(d.snapshot_json).get("last_close"))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
+        out.append({
+            "id": d.id,
+            "ts": d.ts.isoformat(),
+            "symbol": d.symbol,
+            "side": "BUY" if d.action == "buy" else "SELL",
+            "entry_price": last_close,
+            "stop_loss": d.stop_loss,
+            "take_profit": d.take_profit,
+            "size_pct_of_equity": d.size_pct * 100.0,
+            "confidence": d.confidence,
+            "reasoning": d.reasoning,
+            "rr_ratio": (
+                abs((d.take_profit - last_close) / (last_close - d.stop_loss))
+                if last_close and d.stop_loss and d.take_profit and last_close != d.stop_loss
+                else None
+            ),
+        })
+    return out
+
+
 @router.get("/equity")
 async def equity(days: int = Query(30, ge=1, le=365)) -> dict[str, Any]:
-    """Equity curve built from filled/dry trades + daily realized PnL.
-
-    Each filled trade becomes a point: equity at that moment = starting + realized_at_that_time
-    + (position mark-to-entry unrealized is skipped for simplicity; curve = cash + realized).
-    """
+    """Equity curve built from realized ClosedTrade rows (net of commissions)."""
     settings = get_settings()
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     with get_session() as s:
         rows = s.exec(
-            select(Trade).where(Trade.ts >= cutoff).order_by(Trade.ts)
+            select(ClosedTrade).where(ClosedTrade.closed_at >= cutoff).order_by(ClosedTrade.closed_at)
         ).all()
 
+    equity_val = settings.paper_starting_equity_usdt
     points: list[dict[str, Any]] = [{
         "ts": cutoff.isoformat(),
-        "equity": settings.paper_starting_equity_usdt,
+        "equity": equity_val,
         "event": "start",
     }]
-    # We don't track per-trade PnL in the DB yet, so the curve is flat on entries and
-    # steps at exits. Close detection: a trade that reduces |qty| toward zero.
-    running_qty: dict[str, float] = {}
-    running_entry: dict[str, float] = {}
-    realized = 0.0
     for t in rows:
-        px = t.avg_price or t.price or 0.0
-        amt = t.filled_amount or t.amount
-        if not px or not amt or t.status not in {"filled", "dry"}:
-            continue
-        q = running_qty.get(t.symbol, 0.0)
-        e = running_entry.get(t.symbol, 0.0)
-        signed = amt if t.side == "buy" else -amt
-        new_q = q + signed
-        # Closing or reducing a position in the opposite direction realizes PnL.
-        if q != 0 and (q > 0) != (signed > 0):
-            closed = min(abs(q), abs(signed))
-            if q > 0:
-                realized += (px - e) * closed
-            else:
-                realized += (e - px) * closed
-        if q == 0 or (q > 0) != (new_q > 0):
-            running_entry[t.symbol] = px
-        elif signed * q > 0:
-            running_entry[t.symbol] = (e * abs(q) + px * amt) / (abs(q) + amt)
-        running_qty[t.symbol] = new_q
+        equity_val += t.net_pnl_usdt
         points.append({
-            "ts": t.ts.isoformat(),
-            "equity": settings.paper_starting_equity_usdt + realized,
-            "event": f"{t.side} {t.symbol}",
+            "ts": t.closed_at.isoformat(),
+            "equity": equity_val,
+            "event": f"close {t.symbol} {t.side} {'+' if t.net_pnl_usdt >= 0 else ''}{t.net_pnl_usdt:.2f}",
         })
 
     return {

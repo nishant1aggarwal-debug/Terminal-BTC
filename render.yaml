@@ -1,0 +1,32 @@
+# Render.com one-click deploy config.
+#
+# After clicking "Deploy to Render" (see the link in README.md), Render reads
+# this file, builds the Docker image, and gives you a public HTTPS URL.
+# Free tier works — the disk mount keeps your paper-trading history across restarts.
+
+services:
+  - type: web
+    name: terminal-btc
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /healthz
+    envVars:
+      - key: PAPER_MODE
+        value: "true"
+      - key: LIVE_TRADING
+        value: "false"
+      - key: SIGNAL_MODE
+        value: rules
+      - key: DATA_SOURCE
+        value: bybit
+      - key: PAPER_STARTING_EQUITY_USDT
+        value: "1000"
+      - key: POLL_INTERVAL_SEC
+        value: "300"
+      - key: TRADINGVIEW_WEBHOOK_SECRET
+        generateValue: true
+    disk:
+      name: terminal-btc-data
+      mountPath: /app/data
+      sizeGB: 1

@@ -121,6 +121,72 @@ main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
 .pos { color: var(--green); }
 .neg { color: var(--red); }
 
+.stats-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px;
+}
+.stat {
+  background: var(--panel-2); border-radius: 8px; padding: 12px 14px;
+}
+.stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.stat-value { font-size: 20px; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.stat-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+.progress-wrap { margin-top: 4px; }
+.progress-label {
+  display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px;
+  color: var(--muted);
+}
+.progress-bar {
+  height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden;
+}
+.progress-fill {
+  height: 100%; background: linear-gradient(90deg, var(--amber), var(--green));
+  width: 0%; transition: width 0.3s;
+}
+
+.promote-card {
+  display: flex; align-items: center; gap: 16px;
+  background: linear-gradient(135deg, rgba(74,222,128,0.15), rgba(76,201,240,0.1));
+  border: 1px solid rgba(74,222,128,0.4); padding: 14px 18px; border-radius: 10px;
+}
+.promote-icon {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--green); color: #0a1628;
+  display: grid; place-items: center; font-size: 22px; font-weight: 700;
+}
+.promote-card h3 { margin: 0 0 2px 0; font-size: 16px; color: var(--green); }
+.promote-card p { margin: 0; font-size: 13px; color: var(--muted); }
+
+.signals-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px;
+}
+.signal-card {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; display: flex; flex-direction: column; gap: 8px;
+}
+.signal-card.buy { border-left: 3px solid var(--green); }
+.signal-card.sell { border-left: 3px solid var(--red); }
+.signal-head { display: flex; justify-content: space-between; align-items: center; }
+.signal-symbol { font-weight: 600; font-size: 15px; }
+.signal-side { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+.signal-side.buy { background: rgba(74,222,128,0.15); color: var(--green); }
+.signal-side.sell { background: rgba(248,113,113,0.15); color: var(--red); }
+.signal-rows { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 12px; }
+.signal-rows .k { color: var(--muted); }
+.signal-rows .v { font-variant-numeric: tabular-nums; font-weight: 500; text-align: right; }
+.signal-copy {
+  margin-top: 6px; padding: 6px 10px; border-radius: 6px;
+  background: transparent; border: 1px solid var(--border); color: var(--accent);
+  cursor: pointer; font-size: 12px;
+}
+.signal-copy:hover { background: var(--panel); }
+.signal-copy.copied { color: var(--green); border-color: rgba(74,222,128,0.4); }
+.signal-meta { font-size: 11px; color: var(--muted); }
+.conf-bar {
+  height: 4px; background: var(--panel); border-radius: 2px; overflow: hidden; margin-top: 4px;
+}
+.conf-fill { height: 100%; background: var(--accent); }
+
 footer {
   text-align: center; padding: 20px; border-top: 1px solid var(--border);
   margin-top: 40px;
@@ -129,5 +195,6 @@ footer {
 @media (max-width: 960px) {
   .kpi-row { grid-template-columns: repeat(2, 1fr); }
   .grid-two { grid-template-columns: 1fr; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
   .topbar { flex-direction: column; align-items: flex-start; gap: 12px; }
 }

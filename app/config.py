@@ -33,7 +33,18 @@ class Settings(BaseSettings):
     live_trading: bool = False
 
     # Paper portfolio starting equity (USDT). Only used when PAPER_MODE=true.
-    paper_starting_equity_usdt: float = 1_000.0
+    paper_starting_equity_usdt: float = 5_000.0
+
+    # Futures-only (ignored when TRADE_MARKET=spot).
+    # Cross vs isolated margin: in paper mode this is informational + surfaced in the UI.
+    # In live mode, ccxt applies it to new positions.
+    margin_mode: str = "isolated"  # "cross" | "isolated"
+    leverage: float = 3.0          # 1x = spot-like; max 20x on most futures venues
+
+    # Per-trade risk cap: fraction of equity risked on stop-loss distance.
+    # e.g. risk_per_trade_pct=0.01 + 2% stop-distance -> 50% notional (capped by
+    # max_position_usdt). Signals that don't set a stop fall back to size_pct.
+    risk_per_trade_pct: float = 0.01  # 1% of equity risked per trade
 
     # TradingView
     tradingview_webhook_secret: str = "change-me"
@@ -47,9 +58,18 @@ class Settings(BaseSettings):
     trade_timeframe: str = "15m"
     poll_interval_sec: int = 300
 
+    # Realistic paper-trading fees (match real Binance taker rates by default).
+    # bps = basis points (1 bp = 0.01%).
+    fee_spot_bps: float = 10.0       # 0.10% taker — Binance spot default
+    fee_futures_bps: float = 4.0     # 0.04% taker — Binance USDⓈ-M futures default
+    slippage_bps: float = 2.0        # 0.02% adverse price slip on market orders
+    # Futures funding — only applied when TRADE_MARKET=futures. Binance charges
+    # funding every 8h (00:00, 08:00, 16:00 UTC); we approximate with a flat rate.
+    funding_rate_8h_bps: float = 1.0  # 0.01% of notional every 8 hours
+
     # Risk
-    max_position_usdt: float = 50.0
-    max_daily_loss_usdt: float = 25.0
+    max_position_usdt: float = 250.0      # scales with 5k starting equity
+    max_daily_loss_usdt: float = 125.0
     max_open_positions: int = 5
     # Hard filter: refuses anything outside this list even if TradingView sends it.
     # Covers the 16 actively traded + 9 extra high-volume alts (ATOM, UNI, FIL, ARB, OP,
@@ -86,6 +106,21 @@ class Settings(BaseSettings):
         v = v.lower()
         if v not in {"bybit", "binance", "kraken"}:
             raise ValueError("data_source must be 'bybit', 'binance', or 'kraken'")
+        return v
+
+    @field_validator("margin_mode")
+    @classmethod
+    def _check_margin_mode(cls, v: str) -> str:
+        v = v.lower()
+        if v not in {"cross", "isolated"}:
+            raise ValueError("margin_mode must be 'cross' or 'isolated'")
+        return v
+
+    @field_validator("leverage")
+    @classmethod
+    def _check_leverage(cls, v: float) -> float:
+        if v < 1 or v > 125:
+            raise ValueError("leverage must be between 1 and 125")
         return v
 
     @property
