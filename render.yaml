@@ -22,11 +22,30 @@ services:
         value: "false"
       - key: SIGNAL_MODE
         value: rules
+      # IMPORTANT: Bybit and Binance block datacenter IPs from some clouds.
+      # Kraken is the safest default for Render/Railway/Fly deploys. Switch
+      # to bybit/binance only when running locally.
       - key: DATA_SOURCE
-        value: bybit
+        value: kraken
       - key: PAPER_STARTING_EQUITY_USDT
         value: "5000"
       - key: POLL_INTERVAL_SEC
         value: "300"
+      # Bybit-futures-style defaults, explicitly pinned so they survive
+      # redeploys regardless of Python code changes.
+      - key: TRADE_MARKET
+        value: futures
+      - key: LEVERAGE
+        value: "10"
+      - key: MARGIN_MODE
+        value: isolated
+      - key: MAX_OPEN_POSITIONS
+        value: "8"
+      - key: MAX_POSITION_USDT
+        value: "500"
+      - key: MAX_DAILY_LOSS_USDT
+        value: "250"
+      - key: MIN_SIGNAL_CONFIDENCE
+        value: "0.55"
       - key: TRADINGVIEW_WEBHOOK_SECRET
         generateValue: true
