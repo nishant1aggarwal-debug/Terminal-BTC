@@ -1,0 +1,235 @@
+// Terminal-BTC dashboard — vanilla JS, polls /api/* endpoints.
+
+const REFRESH_MS = 10_000;
+
+const fmtUsd = (n, digits = 2) => {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  const sign = n < 0 ? "-" : "";
+  return sign + "$" + Math.abs(n).toLocaleString(undefined, {
+    minimumFractionDigits: digits, maximumFractionDigits: digits,
+  });
+};
+const fmtSignedUsd = (n) => (n >= 0 ? "+" : "") + fmtUsd(n);
+const fmtPct = (n) => (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+const fmtQty = (n) => n.toLocaleString(undefined, { maximumFractionDigits: 6 });
+const fmtPrice = (n) => {
+  if (n === null || n === undefined) return "—";
+  const digits = n >= 100 ? 2 : n >= 1 ? 4 : 6;
+  return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
+};
+const fmtTime = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+};
+
+const classPN = (n) => (n > 0 ? "pos" : n < 0 ? "neg" : "");
+
+async function fetchJSON(url, opts = {}) {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(`${url} → ${r.status}`);
+  return await r.json();
+}
+
+function renderStatusFlags(ov) {
+  const host = document.getElementById("status-flags");
+  const pills = [];
+  pills.push(`<span class="pill ${ov.paper_mode ? "ok" : "bad"}">${ov.paper_mode ? "PAPER" : "LIVE"}</span>`);
+  pills.push(`<span class="pill">${ov.signal_mode}</span>`);
+  pills.push(`<span class="pill">${ov.data_source} · ${ov.timeframe}</span>`);
+  pills.push(`<span class="pill">${(ov.symbols || []).length} symbols</span>`);
+  if (ov.kill_switch?.enabled) {
+    pills.push(`<span class="pill bad">KILL SWITCH</span>`);
+  }
+  host.innerHTML = pills.join("");
+}
+
+function renderKpis(ov) {
+  document.getElementById("kpi-equity").textContent = fmtUsd(ov.equity_usdt);
+  document.getElementById("kpi-equity-sub").textContent = `from ${fmtUsd(ov.starting_equity_usdt)} start`;
+
+  const total = document.getElementById("kpi-total-pnl");
+  total.textContent = fmtSignedUsd(ov.total_pnl_usdt);
+  total.className = "kpi-value " + classPN(ov.total_pnl_usdt);
+  document.getElementById("kpi-total-pnl-pct").textContent = fmtPct(ov.total_pnl_pct);
+
+  const realized = document.getElementById("kpi-realized-pnl");
+  realized.textContent = fmtSignedUsd(ov.realized_pnl_usdt);
+  realized.className = "kpi-value " + classPN(ov.realized_pnl_usdt);
+
+  const unr = document.getElementById("kpi-unrealized-pnl");
+  unr.textContent = fmtSignedUsd(ov.unrealized_pnl_usdt);
+  unr.className = "kpi-value " + classPN(ov.unrealized_pnl_usdt);
+  document.getElementById("kpi-open-count").textContent = `${ov.open_positions_count} open`;
+
+  document.getElementById("kpi-cash").textContent = fmtUsd(ov.cash_usdt);
+  document.getElementById("kpi-open-notional").textContent = `${fmtUsd(ov.open_notional_usdt)} in positions`;
+}
+
+function renderPositions(rows) {
+  document.getElementById("positions-count").textContent = rows.length;
+  const tbody = document.querySelector("#positions-table tbody");
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="muted">no open positions</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(p => `
+    <tr>
+      <td><strong>${p.symbol}</strong></td>
+      <td><span class="tag ${p.side}">${p.side}</span></td>
+      <td class="num">${fmtQty(p.qty)}</td>
+      <td class="num">${fmtPrice(p.avg_entry)}</td>
+      <td class="num">${fmtPrice(p.mark_price)}</td>
+      <td class="num ${classPN(p.unrealized_pnl_usdt)}">${fmtSignedUsd(p.unrealized_pnl_usdt)}</td>
+      <td class="num ${classPN(p.unrealized_pnl_pct)}">${fmtPct(p.unrealized_pnl_pct)}</td>
+    </tr>
+  `).join("");
+}
+
+function renderDecisions(rows) {
+  document.getElementById("decisions-count").textContent = rows.length;
+  const tbody = document.querySelector("#decisions-table tbody");
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="muted">no decisions yet — run a tick</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.slice(0, 20).map(d => `
+    <tr>
+      <td>${fmtTime(d.ts)}</td>
+      <td><strong>${d.symbol}</strong></td>
+      <td><span class="tag ${d.action}">${d.action}</span></td>
+      <td class="num">${fmtPrice(d.last_close)}</td>
+      <td class="muted">${(d.reasoning || "").slice(0, 80)}</td>
+    </tr>
+  `).join("");
+}
+
+function renderTrades(rows) {
+  document.getElementById("trades-count").textContent = rows.length;
+  const tbody = document.querySelector("#trades-table tbody");
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="muted">no trades yet</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(t => `
+    <tr>
+      <td>${fmtTime(t.ts)}</td>
+      <td><strong>${t.symbol}</strong></td>
+      <td><span class="tag ${t.side}">${t.side}</span></td>
+      <td class="num">${fmtQty(t.filled_amount || t.amount)}</td>
+      <td class="num">${fmtPrice(t.avg_price || t.price)}</td>
+      <td><span class="tag ${t.status}">${t.status}</span></td>
+    </tr>
+  `).join("");
+}
+
+function renderEquityChart(data) {
+  const svg = document.getElementById("equity-chart");
+  const points = data.points || [];
+  document.getElementById("equity-points-count").textContent = `${points.length} points`;
+  svg.innerHTML = "";
+  if (points.length < 2) {
+    svg.innerHTML = `<text x="400" y="110" text-anchor="middle" class="chart-label">no trades yet — curve appears after first tick</text>`;
+    return;
+  }
+
+  const W = 800, H = 220, pad = { top: 10, right: 40, bottom: 22, left: 50 };
+  const xs = points.map(p => new Date(p.ts).getTime());
+  const ys = points.map(p => p.equity);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const yPad = (yMax - yMin) * 0.1 || yMax * 0.01 || 1;
+  const y0 = yMin - yPad, y1 = yMax + yPad;
+
+  const xMap = x => pad.left + ((x - xMin) / (xMax - xMin || 1)) * (W - pad.left - pad.right);
+  const yMap = y => H - pad.bottom - ((y - y0) / (y1 - y0 || 1)) * (H - pad.top - pad.bottom);
+
+  const pathD = points.map((p, i) => {
+    const x = xMap(xs[i]), y = yMap(ys[i]);
+    return (i === 0 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1);
+  }).join(" ");
+  const areaD = pathD + ` L${xMap(xMax).toFixed(1)},${(H - pad.bottom).toFixed(1)} L${xMap(xMin).toFixed(1)},${(H - pad.bottom).toFixed(1)} Z`;
+
+  const ticks = 4;
+  const gridLines = [];
+  for (let i = 0; i <= ticks; i++) {
+    const yv = y0 + (i / ticks) * (y1 - y0);
+    const yp = yMap(yv);
+    gridLines.push(`<line class="chart-axis" x1="${pad.left}" x2="${W - pad.right}" y1="${yp}" y2="${yp}" stroke-dasharray="2,4" opacity="0.3" />`);
+    gridLines.push(`<text class="chart-label" x="${pad.left - 6}" y="${yp + 3}" text-anchor="end">$${yv.toFixed(0)}</text>`);
+  }
+  const xStart = new Date(xMin).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const xEnd = new Date(xMax).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  svg.innerHTML = `
+    ${gridLines.join("")}
+    <path class="chart-area" d="${areaD}" />
+    <path class="chart-line" d="${pathD}" />
+    <text class="chart-label" x="${pad.left}" y="${H - 6}">${xStart}</text>
+    <text class="chart-label" x="${W - pad.right}" y="${H - 6}" text-anchor="end">${xEnd}</text>
+  `;
+}
+
+async function refreshAll() {
+  try {
+    const [overview, positions, trades, decisions, equity] = await Promise.all([
+      fetchJSON("/api/overview"),
+      fetchJSON("/api/positions"),
+      fetchJSON("/api/trades?limit=50"),
+      fetchJSON("/api/decisions?limit=30"),
+      fetchJSON("/api/equity?days=30"),
+    ]);
+    renderStatusFlags(overview);
+    renderKpis(overview);
+    renderPositions(positions);
+    renderTrades(trades);
+    renderDecisions(decisions);
+    renderEquityChart(equity);
+    document.getElementById("last-refresh").textContent = `refreshed ${new Date().toLocaleTimeString()}`;
+  } catch (e) {
+    console.error(e);
+    document.getElementById("last-refresh").textContent = `error: ${e.message}`;
+  }
+}
+
+async function runTick() {
+  const btn = document.getElementById("btn-tick");
+  btn.disabled = true;
+  btn.textContent = "Ticking…";
+  try {
+    const r = await fetchJSON("/control/tick-now", { method: "POST" });
+    console.log("tick result", r);
+  } catch (e) {
+    console.error(e);
+    alert("tick failed: " + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Run tick now";
+    await refreshAll();
+  }
+}
+
+async function toggleKill(enabled) {
+  const url = enabled ? "/control/kill" : "/control/resume";
+  const body = enabled ? { reason: "via dashboard" } : {};
+  try {
+    await fetchJSON(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (e) {
+    alert("failed: " + e.message);
+  }
+  await refreshAll();
+}
+
+document.getElementById("btn-tick").addEventListener("click", runTick);
+document.getElementById("btn-refresh").addEventListener("click", refreshAll);
+document.getElementById("btn-kill").addEventListener("click", () => toggleKill(true));
+document.getElementById("btn-resume").addEventListener("click", () => toggleKill(false));
+
+refreshAll();
+setInterval(refreshAll, REFRESH_MS);

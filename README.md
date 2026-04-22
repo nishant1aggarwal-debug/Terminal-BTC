@@ -4,7 +4,8 @@ Paper-trading bot for BTC, ETH, SOL, XRP, and other high-volume USDT pairs again
 
 - **Defaults**: `PAPER_MODE=true` + `SIGNAL_MODE=rules` + `DATA_SOURCE=bybit` → runs with **no API keys**. No real orders ever.
 - **Market data**: pulled from a real public exchange (Bybit by default, swap to Binance or Kraken via `DATA_SOURCE`). No keys, no testnet.
-- **Universe**: 8 pairs by default — BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, LINK. Edit `TRADE_SYMBOLS` to add more; `SYMBOL_ALLOWLIST` is a hard filter (16 pairs out of the box).
+- **Universe**: 16 pairs traded by default — BTC, ETH, SOL, XRP, DOGE, ADA, AVAX, LINK, BNB, TON, TRX, LTC, DOT, MATIC, NEAR, APT. The allowlist covers 25 pairs (those plus ATOM, UNI, FIL, ARB, OP, SUI, SEI, INJ, HBAR) — edit `TRADE_SYMBOLS` to promote any of the extras.
+- **Dashboard**: open `http://localhost:8000/` for a live HTML dashboard — equity, realized/unrealized P&L, open positions (with mark price + uPnL), recent decisions, trade history, and a 30-day equity curve. Auto-refreshes every 10s.
 - **Signal**: local EMA/RSI/MACD/ATR engine (`app/services/rules_signal.py`). Swap in Claude later with `SIGNAL_MODE=claude` + `ANTHROPIC_API_KEY`.
 - **Risk gates**: per-trade cap, daily loss cap, max concurrent positions, symbol allowlist, DB-backed kill switch, idempotent `clientOrderId`.
 - **TradingView** is optional — free TV tier has no webhooks; the scheduler polls every `POLL_INTERVAL_SEC` and sweeps all symbols in turn. If you later upgrade, the `/tv/webhook` route is wired.

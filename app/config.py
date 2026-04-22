@@ -38,8 +38,11 @@ class Settings(BaseSettings):
     # TradingView
     tradingview_webhook_secret: str = "change-me"
 
-    # Trading params
-    trade_symbols: str = "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT"
+    # Trading params — 16 high-volume USDT pairs swept every tick.
+    trade_symbols: str = (
+        "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,"
+        "BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT"
+    )
     trade_market: str = "spot"  # "spot" | "futures"
     trade_timeframe: str = "15m"
     poll_interval_sec: int = 300
@@ -47,10 +50,14 @@ class Settings(BaseSettings):
     # Risk
     max_position_usdt: float = 50.0
     max_daily_loss_usdt: float = 25.0
-    max_open_positions: int = 3
+    max_open_positions: int = 5
+    # Hard filter: refuses anything outside this list even if TradingView sends it.
+    # Covers the 16 actively traded + 9 extra high-volume alts (ATOM, UNI, FIL, ARB, OP,
+    # SUI, SEI, INJ, HBAR) you can promote by adding them to TRADE_SYMBOLS.
     symbol_allowlist: str = (
         "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,"
-        "BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT"
+        "BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT,"
+        "ATOM/USDT,UNI/USDT,FIL/USDT,ARB/USDT,OP/USDT,SUI/USDT,SEI/USDT,INJ/USDT,HBAR/USDT"
     )
 
     # Infra

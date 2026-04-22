@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Terminal-BTC — Live Paper Trader</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">T</span>
+      <div>
+        <h1>Terminal-BTC</h1>
+        <div class="tagline">Paper trading against real public market data</div>
+      </div>
+    </div>
+    <div class="status-group" id="status-flags">
+      <span class="pill loading">loading…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="kpi-row">
+      <div class="kpi">
+        <div class="kpi-label">Equity</div>
+        <div class="kpi-value" id="kpi-equity">—</div>
+        <div class="kpi-sub" id="kpi-equity-sub">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Total P&L</div>
+        <div class="kpi-value" id="kpi-total-pnl">—</div>
+        <div class="kpi-sub" id="kpi-total-pnl-pct">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Realized P&L</div>
+        <div class="kpi-value" id="kpi-realized-pnl">—</div>
+        <div class="kpi-sub">closed trades</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Unrealized P&L</div>
+        <div class="kpi-value" id="kpi-unrealized-pnl">—</div>
+        <div class="kpi-sub" id="kpi-open-count">— open</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">Cash</div>
+        <div class="kpi-value" id="kpi-cash">—</div>
+        <div class="kpi-sub" id="kpi-open-notional">— in positions</div>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button class="btn primary" id="btn-tick">Run tick now</button>
+      <button class="btn" id="btn-refresh">Refresh</button>
+      <button class="btn danger" id="btn-kill">Kill switch</button>
+      <button class="btn ghost" id="btn-resume">Resume</button>
+      <span class="muted" id="last-refresh">—</span>
+    </section>
+
+    <section class="chart-wrap">
+      <div class="section-head">
+        <h2>Equity curve (30d)</h2>
+        <span class="muted" id="equity-points-count">—</span>
+      </div>
+      <svg id="equity-chart" viewBox="0 0 800 220" preserveAspectRatio="none"></svg>
+    </section>
+
+    <section class="grid-two">
+      <div class="panel">
+        <div class="section-head">
+          <h2>Open positions</h2>
+          <span class="muted" id="positions-count">0</span>
+        </div>
+        <table class="data-table" id="positions-table">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Side</th>
+              <th class="num">Qty</th>
+              <th class="num">Entry</th>
+              <th class="num">Mark</th>
+              <th class="num">uPnL</th>
+              <th class="num">uPnL %</th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="7" class="muted">no open positions</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="section-head">
+          <h2>Recent decisions</h2>
+          <span class="muted" id="decisions-count">0</span>
+        </div>
+        <table class="data-table" id="decisions-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Symbol</th>
+              <th>Action</th>
+              <th class="num">Price</th>
+              <th>Reasoning</th>
+            </tr>
+          </thead>
+          <tbody><tr><td colspan="5" class="muted">no decisions yet — run a tick</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Trade history</h2>
+        <span class="muted" id="trades-count">0</span>
+      </div>
+      <table class="data-table" id="trades-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th class="num">Amount</th>
+            <th class="num">Price</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="6" class="muted">no trades yet</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer class="muted">
+    auto-refreshes every 10s · <a href="/status" target="_blank">/status JSON</a> · <a href="/docs" target="_blank">API docs</a>
+  </footer>
+
+  <script src="/ui/app.js"></script>
+</body>
+</html>
