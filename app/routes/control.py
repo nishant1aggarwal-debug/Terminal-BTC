@@ -29,7 +29,15 @@ async def resume() -> dict[str, Any]:
 
 @router.post("/tick-now")
 async def tick_now() -> dict[str, Any]:
-    return await tick(source="scheduler")
+    """Kick off a tick in the background and return immediately.
+
+    Doing the full 16-symbol sweep synchronously can exceed cloud hosts' HTTP
+    timeouts (Render free tier = 30s). The client polls /api/overview for the
+    heartbeat to see when it finishes.
+    """
+    import asyncio
+    asyncio.create_task(tick(source="scheduler"))
+    return {"ok": True, "message": "tick started in background"}
 
 
 @router.post("/macro-refresh")

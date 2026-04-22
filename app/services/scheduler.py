@@ -8,6 +8,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from app.config import get_settings
 from app.db import get_session
+from app.exchange import data_source
 from app.logging_setup import get_logger
 from app.models import Decision, Position
 from app.services import backtest, executor, funding, macro, signal
@@ -139,12 +140,16 @@ async def tick(
             _last_tick_finished_at = datetime.now(timezone.utc).isoformat()
             return {"status": "skipped", "reason": "symbol_not_allowed", "results": []}
     else:
-        symbols_to_run = settings.symbols
+        symbols_to_run = data_source.filter_supported(settings.symbols)
 
-    results: list[dict[str, Any]] = []
+    # Parallel fan-out: fetch snapshots and run decisions concurrently.
+    # Previously sequential (16 × ~1s/symbol ≈ 16-20s) — hit Render's 30s
+    # request timeout on free tier. gather() brings it down to ~3-4s.
+    coros = []
     for sym in symbols_to_run:
         alert_for_sym = tv_alert if tv_alert and tv_alert.get("symbol") == sym else None
-        results.append(await _tick_symbol(sym, tf, alert_for_sym, source))
+        coros.append(_tick_symbol(sym, tf, alert_for_sym, source))
+    results = list(await asyncio.gather(*coros, return_exceptions=False))
 
     _last_tick_finished_at = datetime.now(timezone.utc).isoformat()
     # Summarize by action so the dashboard can show "2 buys, 1 sell, 13 holds".

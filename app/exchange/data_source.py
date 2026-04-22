@@ -24,6 +24,22 @@ log = get_logger(__name__)
 
 _SUPPORTED = {"bybit", "binance", "kraken"}
 
+# Pairs that Kraken doesn't list in USDT quote (they have USD versions instead).
+# Skipping these on Kraken avoids 16 symbol fetches returning empty data. If the
+# user has DATA_SOURCE=bybit/binance, these are fine and get included.
+_KRAKEN_MISSING_USDT = {"TRX/USDT", "MATIC/USDT", "NEAR/USDT", "APT/USDT"}
+
+
+def filter_supported(symbols: list[str]) -> list[str]:
+    """Drop symbols the current data source doesn't list.
+
+    Called once from scheduler/backtest so we never waste requests on pairs
+    that will always 404.
+    """
+    if get_settings().data_source == "kraken":
+        return [s for s in symbols if s not in _KRAKEN_MISSING_USDT]
+    return list(symbols)
+
 
 def _build(source: str) -> ccxt.Exchange:
     if source not in _SUPPORTED:

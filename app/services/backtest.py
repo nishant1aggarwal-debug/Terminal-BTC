@@ -239,7 +239,7 @@ def run_all() -> list[BacktestReport]:
     tf = settings.backtest_timeframe or settings.trade_timeframe
     candles = settings.backtest_candles
     reports: list[BacktestReport] = []
-    for sym in settings.symbols:
+    for sym in data_source.filter_supported(settings.symbols):
         try:
             reports.append(backtest_symbol(sym, tf, candles))
         except Exception as exc:

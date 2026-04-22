@@ -136,7 +136,7 @@ async def markets() -> list[dict[str, Any]]:
         return _MARKETS_CACHE["data"]
 
     settings = get_settings()
-    symbols = settings.symbols
+    symbols = data_source.filter_supported(settings.symbols)
     try:
         tickers = data_source.fetch_tickers(symbols)
     except Exception as exc:
