@@ -80,6 +80,18 @@ class Settings(BaseSettings):
         "ATOM/USDT,UNI/USDT,FIL/USDT,ARB/USDT,OP/USDT,SUI/USDT,SEI/USDT,INJ/USDT,HBAR/USDT"
     )
 
+    # Macro context — Fear & Greed pulled every MACRO_POLL_MIN minutes.
+    # When F&G is extreme (>80 greed or <20 fear), the rules engine
+    # dampens same-direction confidence and boosts contrarian confidence.
+    macro_poll_min: int = 15
+    fear_greed_api_url: str = "https://api.alternative.me/fng/?limit=1"
+
+    # Backtester — replays rules_signal against historical candles to measure
+    # out-of-sample win rate / profit factor before promoting to live.
+    backtest_candles: int = 500          # how many bars back per symbol
+    backtest_hour_utc: int = 3           # nightly job fires at this UTC hour
+    backtest_timeframe: str = ""         # empty = use trade_timeframe
+
     # Infra
     database_url: str = "sqlite:///data/terminal_btc.db"
     log_level: str = "INFO"

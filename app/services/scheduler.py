@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import executor, funding, signal
+from app.services import backtest, executor, funding, macro, signal
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -138,6 +138,16 @@ async def _funding_job() -> None:
         await asyncio.to_thread(funding.charge_funding)
 
 
+async def _macro_job() -> None:
+    """Refresh Fear & Greed index from alternative.me."""
+    await asyncio.to_thread(macro.refresh_fear_greed)
+
+
+async def _backtest_job() -> None:
+    """Replay the rules engine against historical candles for every TRADE_SYMBOL."""
+    await asyncio.to_thread(backtest.run_all)
+
+
 def start() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -147,7 +157,18 @@ def start() -> None:
     sched.add_job(tick, "interval", seconds=settings.poll_interval_sec, id="tick", max_instances=1)
     # Check funding every minute — job no-ops unless we're at an 8h boundary.
     sched.add_job(_funding_job, "interval", seconds=60, id="funding", max_instances=1)
+    # Macro indicators (F&G) every MACRO_POLL_MIN minutes.
+    sched.add_job(
+        _macro_job, "interval", minutes=settings.macro_poll_min, id="macro", max_instances=1,
+    )
+    # Nightly backtest at BACKTEST_HOUR_UTC.
+    sched.add_job(
+        _backtest_job, "cron", hour=settings.backtest_hour_utc, minute=0,
+        id="backtest", max_instances=1,
+    )
     sched.start()
+    # Warm the F&G cache on startup so the first ticks see it.
+    asyncio.get_event_loop().create_task(_macro_job())
     asyncio.get_event_loop().create_task(_tv_consumer())
     _scheduler = sched
     log.info(

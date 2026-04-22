@@ -52,9 +52,64 @@
     <section class="actions">
       <button class="btn primary" id="btn-tick">Run tick now</button>
       <button class="btn" id="btn-refresh">Refresh</button>
+      <button class="btn" id="btn-backtest">Run backtest</button>
+      <button class="btn" id="btn-macro">Refresh F&amp;G</button>
       <button class="btn danger" id="btn-kill">Kill switch</button>
       <button class="btn ghost" id="btn-resume">Resume</button>
       <span class="muted" id="last-refresh">—</span>
+    </section>
+
+    <section class="grid-two">
+      <div class="panel">
+        <div class="section-head">
+          <h2>Crypto Fear &amp; Greed</h2>
+          <span class="muted" id="fg-fetched">—</span>
+        </div>
+        <div id="fg-gauge" class="fg-gauge">
+          <div class="fg-value" id="fg-value">—</div>
+          <div class="fg-label" id="fg-label">loading…</div>
+          <div class="fg-bar"><div class="fg-fill" id="fg-fill"></div></div>
+          <div class="fg-scale">
+            <span>Extreme Fear</span><span>Fear</span><span>Neutral</span><span>Greed</span><span>Extreme Greed</span>
+          </div>
+          <div class="muted" id="fg-nudge">—</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-head">
+          <h2>Backtest summary</h2>
+          <span class="muted" id="backtest-generated">—</span>
+        </div>
+        <div class="stats-grid">
+          <div class="stat"><div class="stat-label">Symbols</div><div class="stat-value" id="bt-symbols">—</div></div>
+          <div class="stat"><div class="stat-label">Trades</div><div class="stat-value" id="bt-trades">—</div></div>
+          <div class="stat"><div class="stat-label">Win rate</div><div class="stat-value" id="bt-winrate">—</div></div>
+          <div class="stat"><div class="stat-label">Avg P&amp;L</div><div class="stat-value" id="bt-pnl">—</div></div>
+        </div>
+        <div class="muted" style="font-size:12px; margin-top:8px;">Nightly replay against ~500 recent candles per symbol. Tap <em>Run backtest</em> for fresh numbers.</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Backtest per symbol</h2>
+        <span class="muted" id="backtest-count">0</span>
+      </div>
+      <table class="data-table" id="backtest-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th class="num">Trades</th>
+            <th class="num">Win rate</th>
+            <th class="num">Profit factor</th>
+            <th class="num">Net P&amp;L %</th>
+            <th class="num">Max DD %</th>
+            <th class="num">Avg hold</th>
+          </tr>
+        </thead>
+        <tbody><tr><td colspan="7" class="muted">no backtests yet — click <em>Run backtest</em></td></tr></tbody>
+      </table>
     </section>
 
     <section class="chart-wrap">

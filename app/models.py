@@ -94,3 +94,37 @@ class KillSwitch(SQLModel, table=True):
     enabled: bool = False
     reason: str = ""
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class MacroIndicator(SQLModel, table=True):
+    """Latest value for a macro/market-regime indicator (fear&greed, DXY, etc.).
+
+    One row per `name` — upserted on every fetch. We keep only the latest so
+    the dashboard has an O(1) read.
+    """
+    name: str = Field(primary_key=True)  # e.g. "fear_greed"
+    value: float
+    classification: str = ""
+    source: str = ""
+    fetched_at: datetime = Field(default_factory=_utcnow)
+    raw: Optional[str] = None
+
+
+class BacktestReport(SQLModel, table=True):
+    """Result of replaying the rules engine over historical candles for one symbol."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    symbol: str = Field(index=True)
+    timeframe: str
+    generated_at: datetime = Field(default_factory=_utcnow, index=True)
+    candles: int = 0
+    trades: int = 0
+    wins: int = 0
+    losses: int = 0
+    win_rate_pct: float = 0.0
+    profit_factor: Optional[float] = None  # None = undefined (zero losses, zero wins)
+    net_pnl_pct: float = 0.0
+    max_drawdown_pct: float = 0.0
+    avg_hold_minutes: float = 0.0
+    params_json: str = "{}"  # the strategy params used (for future A/B)
+    period_start: Optional[datetime] = None
+    period_end: Optional[datetime] = None

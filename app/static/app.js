@@ -276,9 +276,70 @@ function renderSignals(rows) {
   });
 }
 
+function renderFearGreed(ov) {
+  const fg = ov.fear_greed;
+  const fill = document.getElementById("fg-fill");
+  const valueEl = document.getElementById("fg-value");
+  const labelEl = document.getElementById("fg-label");
+  const fetchedEl = document.getElementById("fg-fetched");
+  const nudgeEl = document.getElementById("fg-nudge");
+  if (!fg) {
+    valueEl.textContent = "—";
+    labelEl.textContent = "awaiting first fetch";
+    fill.style.left = "50%";
+    fetchedEl.textContent = "—";
+    nudgeEl.textContent = "F&G adjusts signal confidence at extremes (<20 fear, >80 greed).";
+    return;
+  }
+  const v = fg.value;
+  valueEl.textContent = v.toFixed(0);
+  labelEl.textContent = fg.classification || "—";
+  fill.style.left = `${Math.max(0, Math.min(100, v))}%`;
+  fetchedEl.textContent = `updated ${fmtTime(fg.fetched_at)}`;
+  let nudge = "Neutral — no confidence adjustment.";
+  if (v >= 80) nudge = "Extreme greed — longs are dampened, shorts boosted.";
+  else if (v <= 20) nudge = "Extreme fear — longs boosted, shorts dampened.";
+  nudgeEl.textContent = nudge;
+}
+
+function renderBacktest(bt) {
+  document.getElementById("bt-symbols").textContent = bt.symbols_covered;
+  document.getElementById("bt-trades").textContent = bt.total_trades;
+  document.getElementById("bt-winrate").textContent = bt.total_trades
+    ? bt.overall_win_rate_pct.toFixed(1) + "%" : "—";
+  const pnlEl = document.getElementById("bt-pnl");
+  pnlEl.textContent = bt.symbols_covered ? fmtSignedPct(bt.avg_pnl_pct) : "—";
+  pnlEl.className = "stat-value " + classPN(bt.avg_pnl_pct);
+  document.getElementById("backtest-generated").textContent = bt.generated_at
+    ? `generated ${fmtTime(bt.generated_at)}` : "not yet run";
+  document.getElementById("backtest-count").textContent = bt.reports.length;
+
+  const tbody = document.querySelector("#backtest-table tbody");
+  if (!bt.reports.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="muted">no backtests yet — click <em>Run backtest</em></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = bt.reports.map(r => `
+    <tr>
+      <td><strong>${r.symbol}</strong></td>
+      <td class="num">${r.trades}</td>
+      <td class="num">${r.trades ? r.win_rate_pct.toFixed(1) + "%" : "—"}</td>
+      <td class="num">${r.profit_factor !== null && r.profit_factor !== undefined ? r.profit_factor.toFixed(2) : "—"}</td>
+      <td class="num ${classPN(r.net_pnl_pct)}">${fmtSignedPct(r.net_pnl_pct)}</td>
+      <td class="num neg">${r.max_drawdown_pct.toFixed(2)}%</td>
+      <td class="num">${r.avg_hold_minutes.toFixed(0)}m</td>
+    </tr>
+  `).join("");
+}
+
+const fmtSignedPct = (n) => {
+  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  return (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+};
+
 async function refreshAll() {
   try {
-    const [overview, positions, trades, decisions, equity, stats, signals] = await Promise.all([
+    const [overview, positions, trades, decisions, equity, stats, signals, backtest] = await Promise.all([
       fetchJSON("/api/overview"),
       fetchJSON("/api/positions"),
       fetchJSON("/api/trades?limit=50"),
@@ -286,20 +347,39 @@ async function refreshAll() {
       fetchJSON("/api/equity?days=30"),
       fetchJSON("/api/stats"),
       fetchJSON("/api/signals/latest?limit=20"),
+      fetchJSON("/api/backtest"),
     ]);
     renderStatusFlags(overview);
     renderKpis(overview);
+    renderFearGreed(overview);
     renderPositions(positions);
     renderTrades(trades);
     renderDecisions(decisions);
     renderEquityChart(equity);
     renderStats(stats);
     renderSignals(signals);
+    renderBacktest(backtest);
     document.getElementById("last-refresh").textContent = `refreshed ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     console.error(e);
     document.getElementById("last-refresh").textContent = `error: ${e.message}`;
   }
+}
+
+async function runBacktest() {
+  const btn = document.getElementById("btn-backtest");
+  btn.disabled = true; btn.textContent = "Backtesting…";
+  try { await fetchJSON("/control/backtest-now", { method: "POST" }); }
+  catch (e) { alert("backtest failed: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = "Run backtest"; await refreshAll(); }
+}
+
+async function refreshMacro() {
+  const btn = document.getElementById("btn-macro");
+  btn.disabled = true; btn.textContent = "Fetching…";
+  try { await fetchJSON("/control/macro-refresh", { method: "POST" }); }
+  catch (e) { alert("macro refresh failed: " + e.message); }
+  finally { btn.disabled = false; btn.textContent = "Refresh F&G"; await refreshAll(); }
 }
 
 async function runTick() {
@@ -336,6 +416,8 @@ async function toggleKill(enabled) {
 
 document.getElementById("btn-tick").addEventListener("click", runTick);
 document.getElementById("btn-refresh").addEventListener("click", refreshAll);
+document.getElementById("btn-backtest").addEventListener("click", runBacktest);
+document.getElementById("btn-macro").addEventListener("click", refreshMacro);
 document.getElementById("btn-kill").addEventListener("click", () => toggleKill(true));
 document.getElementById("btn-resume").addEventListener("click", () => toggleKill(false));
 

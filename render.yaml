@@ -2,7 +2,11 @@
 #
 # After clicking "Deploy to Render" (see the link in README.md), Render reads
 # this file, builds the Docker image, and gives you a public HTTPS URL.
-# Free tier works — the disk mount keeps your paper-trading history across restarts.
+#
+# Free tier note: disks are not available on free services, so the SQLite DB
+# lives inside the container — it resets on every redeploy (but survives normal
+# restarts). Fine for paper trading + the self-rebuilding backtest/F&G caches.
+# Upgrade the plan to 'starter' (~$7/mo) if you want persistent history.
 
 services:
   - type: web
@@ -21,12 +25,8 @@ services:
       - key: DATA_SOURCE
         value: bybit
       - key: PAPER_STARTING_EQUITY_USDT
-        value: "1000"
+        value: "5000"
       - key: POLL_INTERVAL_SEC
         value: "300"
       - key: TRADINGVIEW_WEBHOOK_SECRET
         generateValue: true
-    disk:
-      name: terminal-btc-data
-      mountPath: /app/data
-      sizeGB: 1

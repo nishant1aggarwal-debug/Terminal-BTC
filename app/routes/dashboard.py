@@ -15,7 +15,16 @@ from sqlmodel import desc, select
 
 from app.config import get_settings
 from app.db import get_session
-from app.models import ClosedTrade, DailyPnL, Decision, KillSwitch, Position, Trade
+from app.models import (
+    BacktestReport,
+    ClosedTrade,
+    DailyPnL,
+    Decision,
+    KillSwitch,
+    MacroIndicator,
+    Position,
+    Trade,
+)
 
 router = APIRouter(prefix="/api", tags=["dashboard"])
 
@@ -54,6 +63,7 @@ async def overview() -> dict[str, Any]:
         trades = s.exec(select(Trade).order_by(desc(Trade.ts)).limit(1)).all()
         decisions = s.exec(select(Decision).order_by(desc(Decision.ts)).limit(1)).all()
         pnl_rows = s.exec(select(DailyPnL)).all()
+        fg = s.get(MacroIndicator, "fear_greed")
 
     marks = _latest_mark_prices()
     open_positions = [p for p in positions if abs(p.qty) > 1e-9]
@@ -99,6 +109,11 @@ async def overview() -> dict[str, Any]:
         "open_positions_count": len(open_positions),
         "last_trade_ts": last_trade_ts,
         "last_decision_ts": last_decision_ts,
+        "fear_greed": {
+            "value": fg.value,
+            "classification": fg.classification,
+            "fetched_at": fg.fetched_at.isoformat(),
+        } if fg else None,
     }
 
 
@@ -324,6 +339,70 @@ async def latest_signals(limit: int = Query(20, ge=1, le=100)) -> list[dict[str,
             ),
         })
     return out
+
+
+@router.get("/macro")
+async def macro_state() -> dict[str, Any]:
+    """Latest macro indicators (Fear & Greed for now)."""
+    with get_session() as s:
+        rows = s.exec(select(MacroIndicator)).all()
+    out: dict[str, Any] = {}
+    for r in rows:
+        out[r.name] = {
+            "value": r.value,
+            "classification": r.classification,
+            "source": r.source,
+            "fetched_at": r.fetched_at.isoformat(),
+        }
+    return out
+
+
+@router.get("/backtest")
+async def backtest_latest() -> dict[str, Any]:
+    """Latest BacktestReport per symbol + aggregate summary."""
+    with get_session() as s:
+        rows = s.exec(select(BacktestReport).order_by(desc(BacktestReport.generated_at))).all()
+    latest_by_symbol: dict[str, BacktestReport] = {}
+    for r in rows:
+        if r.symbol not in latest_by_symbol:
+            latest_by_symbol[r.symbol] = r
+    reports = list(latest_by_symbol.values())
+
+    total_trades = sum(r.trades for r in reports)
+    total_wins = sum(r.wins for r in reports)
+    total_losses = sum(r.losses for r in reports)
+    overall_wr = (total_wins / total_trades * 100.0) if total_trades else 0.0
+    avg_pnl_pct = (sum(r.net_pnl_pct for r in reports) / len(reports)) if reports else 0.0
+    latest_generated = max((r.generated_at for r in reports), default=None)
+
+    return {
+        "generated_at": latest_generated.isoformat() if latest_generated else None,
+        "symbols_covered": len(reports),
+        "total_trades": total_trades,
+        "total_wins": total_wins,
+        "total_losses": total_losses,
+        "overall_win_rate_pct": overall_wr,
+        "avg_pnl_pct": avg_pnl_pct,
+        "reports": [
+            {
+                "symbol": r.symbol,
+                "timeframe": r.timeframe,
+                "generated_at": r.generated_at.isoformat(),
+                "candles": r.candles,
+                "trades": r.trades,
+                "wins": r.wins,
+                "losses": r.losses,
+                "win_rate_pct": r.win_rate_pct,
+                "profit_factor": r.profit_factor,
+                "net_pnl_pct": r.net_pnl_pct,
+                "max_drawdown_pct": r.max_drawdown_pct,
+                "avg_hold_minutes": r.avg_hold_minutes,
+                "period_start": r.period_start.isoformat() if r.period_start else None,
+                "period_end": r.period_end.isoformat() if r.period_end else None,
+            }
+            for r in sorted(reports, key=lambda r: r.net_pnl_pct, reverse=True)
+        ],
+    }
 
 
 @router.get("/equity")

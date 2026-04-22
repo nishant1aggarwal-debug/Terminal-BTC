@@ -11,7 +11,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.logging_setup import get_logger
-from app.services import rules_signal
+from app.services import macro, rules_signal
 
 log = get_logger(__name__)
 
@@ -68,6 +68,16 @@ def generate(
             )
 
     rd = rules_signal.generate_decision(snapshot, tv_alert, position)
+    # Nudge confidence based on Fear & Greed extremes (no-op if F&G missing).
+    fg = macro.get_latest("fear_greed")
+    if fg is not None and rd.action != "hold":
+        mult = macro.confidence_adjustment(rd.action, fg.value)
+        if mult != 1.0:
+            rd.confidence = round(max(0.0, min(1.0, rd.confidence * mult)), 3)
+            tag = "dampened" if mult < 1.0 else "boosted"
+            rd.reasoning = (
+                f"{rd.reasoning} | F&G={fg.value:.0f} ({fg.classification}) — conf {tag} x{mult:.2f}"
+            )
     return Decision(
         action=rd.action,
         size_pct=rd.size_pct,
