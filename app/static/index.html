@@ -20,6 +20,13 @@
     </div>
   </header>
 
+  <div id="heartbeat-bar" class="heartbeat-bar">
+    <span id="hb-scheduler" class="hb-pill">scheduler: —</span>
+    <span id="hb-last-tick" class="hb-pill muted">last tick: —</span>
+    <span id="hb-next-tick" class="hb-pill muted">next tick: —</span>
+    <span id="hb-last-summary" class="hb-pill muted">—</span>
+  </div>
+
   <main>
     <section class="kpi-row">
       <div class="kpi">
@@ -57,6 +64,33 @@
       <button class="btn danger" id="btn-kill">Kill switch</button>
       <button class="btn ghost" id="btn-resume">Resume</button>
       <span class="muted" id="last-refresh">—</span>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Live markets — 16 USDT pairs</h2>
+        <span class="muted" id="markets-updated">—</span>
+      </div>
+      <div id="markets-grid" class="markets-grid">
+        <div class="muted" style="padding: 20px;">loading live prices from Bybit…</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Chart — powered by TradingView</h2>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="tv-symbol" class="btn" style="padding: 6px 10px; font-size: 13px;"></select>
+          <select id="tv-interval" class="btn" style="padding: 6px 10px; font-size: 13px;">
+            <option value="5">5m</option>
+            <option value="15" selected>15m</option>
+            <option value="60">1h</option>
+            <option value="240">4h</option>
+            <option value="D">1d</option>
+          </select>
+        </div>
+      </div>
+      <div id="tv-chart" style="width:100%; height: 520px; background: var(--panel-2); border-radius: 8px; overflow: hidden;"></div>
     </section>
 
     <section class="grid-two">

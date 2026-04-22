@@ -18,6 +18,29 @@ log = get_logger(__name__)
 _scheduler: AsyncIOScheduler | None = None
 _tv_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
 
+# Heartbeat state the dashboard reads via /api/overview.
+_last_tick_started_at: str | None = None
+_last_tick_finished_at: str | None = None
+_last_tick_summary: dict[str, Any] | None = None
+
+
+def heartbeat() -> dict[str, Any]:
+    from datetime import datetime, timezone
+    settings = get_settings()
+    next_at = None
+    if _scheduler is not None:
+        job = _scheduler.get_job("tick")
+        if job and job.next_run_time:
+            next_at = job.next_run_time.astimezone(timezone.utc).isoformat()
+    return {
+        "scheduler_running": _scheduler is not None,
+        "poll_interval_sec": settings.poll_interval_sec,
+        "last_tick_started_at": _last_tick_started_at,
+        "last_tick_finished_at": _last_tick_finished_at,
+        "last_tick_summary": _last_tick_summary,
+        "next_tick_at": next_at,
+    }
+
 
 def tv_queue() -> asyncio.Queue[dict[str, Any]]:
     return _tv_queue
@@ -102,6 +125,10 @@ async def tick(
     A webhook-triggered tick scopes to the alert's symbol (if it's on the allowlist);
     a scheduler tick sweeps every configured symbol serially.
     """
+    global _last_tick_started_at, _last_tick_finished_at, _last_tick_summary
+    from datetime import datetime, timezone
+    _last_tick_started_at = datetime.now(timezone.utc).isoformat()
+
     settings = get_settings()
     tf = settings.trade_timeframe
 
@@ -109,6 +136,7 @@ async def tick(
         symbols_to_run = [tv_alert["symbol"]] if tv_alert["symbol"] in settings.allowed_symbols else []
         if not symbols_to_run:
             log.warning("tv_alert_symbol_not_allowed", symbol=tv_alert.get("symbol"))
+            _last_tick_finished_at = datetime.now(timezone.utc).isoformat()
             return {"status": "skipped", "reason": "symbol_not_allowed", "results": []}
     else:
         symbols_to_run = settings.symbols
@@ -117,6 +145,14 @@ async def tick(
     for sym in symbols_to_run:
         alert_for_sym = tv_alert if tv_alert and tv_alert.get("symbol") == sym else None
         results.append(await _tick_symbol(sym, tf, alert_for_sym, source))
+
+    _last_tick_finished_at = datetime.now(timezone.utc).isoformat()
+    # Summarize by action so the dashboard can show "2 buys, 1 sell, 13 holds".
+    counts = {"buy": 0, "sell": 0, "hold": 0, "skipped": 0}
+    for r in results:
+        key = r.get("action") or ("skipped" if r.get("status") == "skipped" else "hold")
+        counts[key] = counts.get(key, 0) + 1
+    _last_tick_summary = {"counts": counts, "total": len(results), "source": source}
 
     return {"status": "ok", "count": len(results), "results": results}
 

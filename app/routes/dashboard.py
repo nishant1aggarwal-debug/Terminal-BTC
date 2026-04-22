@@ -15,6 +15,8 @@ from sqlmodel import desc, select
 
 from app.config import get_settings
 from app.db import get_session
+from app.exchange import data_source
+from app.services import scheduler as scheduler_svc
 from app.models import (
     BacktestReport,
     ClosedTrade,
@@ -114,7 +116,49 @@ async def overview() -> dict[str, Any]:
             "classification": fg.classification,
             "fetched_at": fg.fetched_at.isoformat(),
         } if fg else None,
+        "scheduler": scheduler_svc.heartbeat(),
     }
+
+
+_MARKETS_CACHE: dict[str, Any] = {"ts": 0.0, "data": []}
+_MARKETS_TTL_SEC = 20
+
+
+@router.get("/markets")
+async def markets() -> list[dict[str, Any]]:
+    """Current price + 24h change + volume for every TRADE_SYMBOL.
+
+    Cached 20s to keep the dashboard snappy without hammering the exchange.
+    """
+    import time
+    now = time.time()
+    if now - _MARKETS_CACHE["ts"] < _MARKETS_TTL_SEC and _MARKETS_CACHE["data"]:
+        return _MARKETS_CACHE["data"]
+
+    settings = get_settings()
+    symbols = settings.symbols
+    try:
+        tickers = data_source.fetch_tickers(symbols)
+    except Exception as exc:
+        return [{"symbol": s, "error": str(exc)} for s in symbols]
+
+    out: list[dict[str, Any]] = []
+    for sym in symbols:
+        t = tickers.get(sym) or {}
+        out.append({
+            "symbol": sym,
+            "last": t.get("last") or t.get("close"),
+            "bid": t.get("bid"),
+            "ask": t.get("ask"),
+            "high": t.get("high"),
+            "low": t.get("low"),
+            "change_pct": t.get("percentage"),
+            "volume_24h": t.get("quoteVolume") or t.get("baseVolume"),
+            "source": settings.data_source,
+        })
+    _MARKETS_CACHE["ts"] = now
+    _MARKETS_CACHE["data"] = out
+    return out
 
 
 @router.get("/positions")

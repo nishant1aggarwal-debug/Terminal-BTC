@@ -49,3 +49,23 @@ def fetch_ohlcv(symbol: str, timeframe: str = "15m", limit: int = 200) -> list[l
 
 def fetch_order_book(symbol: str, limit: int = 5) -> dict[str, Any]:
     return get_client().fetch_order_book(symbol, limit=limit)
+
+
+def fetch_tickers(symbols: list[str] | None = None) -> dict[str, dict[str, Any]]:
+    """Batch-fetch last price / 24h change / volume for many symbols in one call.
+
+    Exchanges that don't support batched tickers (Kraken sometimes) fall
+    back to per-symbol fetch_ticker(). Returns {symbol: ticker_dict}.
+    """
+    client = get_client()
+    try:
+        return client.fetch_tickers(symbols)
+    except Exception as exc:
+        log.warning("fetch_tickers_batch_failed_falling_back", error=str(exc))
+        out: dict[str, dict[str, Any]] = {}
+        for sym in symbols or []:
+            try:
+                out[sym] = client.fetch_ticker(sym)
+            except Exception as sub_exc:
+                log.warning("fetch_ticker_failed", symbol=sym, error=str(sub_exc))
+        return out

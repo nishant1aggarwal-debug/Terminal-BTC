@@ -2,6 +2,30 @@
 
 const REFRESH_MS = 10_000;
 
+// TradingView widget — Bybit is the default data source. Their widget symbol
+// format is e.g. BYBIT:BTCUSDT (no slash). We fall back to the same symbol on
+// BINANCE/KRAKEN if the user has switched data sources.
+let _tvWidget = null;
+let _tvSymbol = "BTC/USDT";
+let _tvInterval = "15";
+
+function tvPair(symbol, source = "BYBIT") {
+  const clean = symbol.replace("/", "").toUpperCase();
+  return `${source.toUpperCase()}:${clean}`;
+}
+
+function mountTradingView(symbol, interval, source) {
+  const host = document.getElementById("tv-chart");
+  if (!host) return;
+  host.innerHTML = "";
+  const iframe = document.createElement("iframe");
+  const sym = encodeURIComponent(tvPair(symbol, source || "BYBIT"));
+  iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tv&symbol=${sym}&interval=${interval}&theme=dark&style=1&timezone=Etc/UTC&withdateranges=1&hide_side_toolbar=0&allow_symbol_change=1&save_image=1`;
+  iframe.style.cssText = "width:100%; height:100%; border:0;";
+  iframe.allow = "fullscreen";
+  host.appendChild(iframe);
+}
+
 const fmtUsd = (n, digits = 2) => {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
   const sign = n < 0 ? "-" : "";
@@ -31,6 +55,96 @@ async function fetchJSON(url, opts = {}) {
   const r = await fetch(url, opts);
   if (!r.ok) throw new Error(`${url} → ${r.status}`);
   return await r.json();
+}
+
+function renderHeartbeat(ov) {
+  const h = ov.scheduler || {};
+  const schedEl = document.getElementById("hb-scheduler");
+  const lastEl = document.getElementById("hb-last-tick");
+  const nextEl = document.getElementById("hb-next-tick");
+  const sumEl = document.getElementById("hb-last-summary");
+
+  if (h.scheduler_running) {
+    schedEl.textContent = `scheduler: live · every ${Math.round((h.poll_interval_sec || 300) / 60)}m`;
+    schedEl.className = "hb-pill alive";
+  } else {
+    schedEl.textContent = "scheduler: down";
+    schedEl.className = "hb-pill down";
+  }
+
+  if (h.last_tick_finished_at) {
+    const ago = Math.round((Date.now() - new Date(h.last_tick_finished_at).getTime()) / 1000);
+    const label = ago < 60 ? `${ago}s ago` : ago < 3600 ? `${Math.round(ago / 60)}m ago` : `${Math.round(ago / 3600)}h ago`;
+    lastEl.textContent = `last tick: ${label}`;
+    lastEl.className = ago > 600 ? "hb-pill stale" : "hb-pill alive";
+  } else {
+    lastEl.textContent = "last tick: pending";
+    lastEl.className = "hb-pill stale";
+  }
+
+  if (h.next_tick_at) {
+    const secs = Math.round((new Date(h.next_tick_at).getTime() - Date.now()) / 1000);
+    nextEl.textContent = secs > 0 ? `next tick: ${secs < 60 ? secs + "s" : Math.round(secs / 60) + "m"}` : "next tick: now";
+  } else {
+    nextEl.textContent = "next tick: —";
+  }
+
+  const c = h.last_tick_summary?.counts;
+  if (c) {
+    sumEl.textContent = `last sweep: ${c.buy || 0}B · ${c.sell || 0}S · ${c.hold || 0}H${c.skipped ? " · " + c.skipped + " skipped" : ""}`;
+  } else {
+    sumEl.textContent = "awaiting first tick — click Run tick now";
+  }
+}
+
+function renderMarkets(rows) {
+  const host = document.getElementById("markets-grid");
+  const updEl = document.getElementById("markets-updated");
+  if (!rows || !rows.length) {
+    host.innerHTML = `<div class="muted" style="padding:20px;">no market data yet</div>`;
+    return;
+  }
+  updEl.textContent = `updated ${new Date().toLocaleTimeString()}`;
+  host.innerHTML = rows.map(r => {
+    if (r.error) {
+      return `<div class="market-card flat"><div class="market-sym">${r.symbol}</div><div class="muted" style="font-size:11px;">fetch error</div></div>`;
+    }
+    const change = r.change_pct || 0;
+    const cls = change > 0.1 ? "up" : change < -0.1 ? "down" : "flat";
+    const selected = r.symbol === _tvSymbol ? " selected" : "";
+    return `
+      <div class="market-card ${cls}${selected}" data-symbol="${r.symbol}">
+        <div class="market-sym">${r.symbol}</div>
+        <div class="market-price">${fmtPrice(r.last)}</div>
+        <div class="market-change ${classPN(change)}">${change >= 0 ? "+" : ""}${change.toFixed(2)}%</div>
+        <div class="market-vol">vol ${r.volume_24h ? (r.volume_24h / 1_000_000).toFixed(1) + "M" : "—"}</div>
+      </div>
+    `;
+  }).join("");
+  host.querySelectorAll(".market-card").forEach(card => {
+    card.addEventListener("click", () => {
+      _tvSymbol = card.getAttribute("data-symbol");
+      document.getElementById("tv-symbol").value = _tvSymbol;
+      mountTradingView(_tvSymbol, _tvInterval, window._tvSource);
+      host.querySelectorAll(".market-card").forEach(c => c.classList.remove("selected"));
+      card.classList.add("selected");
+    });
+  });
+  // Populate tv-symbol dropdown.
+  const sel = document.getElementById("tv-symbol");
+  if (sel && sel.options.length === 0) {
+    sel.innerHTML = rows.map(r =>
+      `<option value="${r.symbol}"${r.symbol === _tvSymbol ? " selected" : ""}>${r.symbol}</option>`
+    ).join("");
+    sel.addEventListener("change", (e) => {
+      _tvSymbol = e.target.value;
+      mountTradingView(_tvSymbol, _tvInterval, window._tvSource);
+    });
+    document.getElementById("tv-interval").addEventListener("change", (e) => {
+      _tvInterval = e.target.value;
+      mountTradingView(_tvSymbol, _tvInterval, window._tvSource);
+    });
+  }
 }
 
 function renderStatusFlags(ov) {
@@ -339,7 +453,7 @@ const fmtSignedPct = (n) => {
 
 async function refreshAll() {
   try {
-    const [overview, positions, trades, decisions, equity, stats, signals, backtest] = await Promise.all([
+    const [overview, positions, trades, decisions, equity, stats, signals, backtest, markets] = await Promise.all([
       fetchJSON("/api/overview"),
       fetchJSON("/api/positions"),
       fetchJSON("/api/trades?limit=50"),
@@ -348,10 +462,14 @@ async function refreshAll() {
       fetchJSON("/api/stats"),
       fetchJSON("/api/signals/latest?limit=20"),
       fetchJSON("/api/backtest"),
+      fetchJSON("/api/markets"),
     ]);
+    window._tvSource = (overview.data_source || "bybit").toUpperCase();
     renderStatusFlags(overview);
+    renderHeartbeat(overview);
     renderKpis(overview);
     renderFearGreed(overview);
+    renderMarkets(markets);
     renderPositions(positions);
     renderTrades(trades);
     renderDecisions(decisions);
@@ -360,6 +478,14 @@ async function refreshAll() {
     renderSignals(signals);
     renderBacktest(backtest);
     document.getElementById("last-refresh").textContent = `refreshed ${new Date().toLocaleTimeString()}`;
+
+    // Auto-fire the first tick if the DB is truly empty, so new users see data
+    // immediately instead of waiting 5 minutes for the scheduler.
+    if (!window._autoTicked && !overview.last_decision_ts && !overview.scheduler?.last_tick_finished_at) {
+      window._autoTicked = true;
+      console.log("auto-firing first tick");
+      fetch("/control/tick-now", { method: "POST" }).then(() => refreshAll());
+    }
   } catch (e) {
     console.error(e);
     document.getElementById("last-refresh").textContent = `error: ${e.message}`;
@@ -420,6 +546,10 @@ document.getElementById("btn-backtest").addEventListener("click", runBacktest);
 document.getElementById("btn-macro").addEventListener("click", refreshMacro);
 document.getElementById("btn-kill").addEventListener("click", () => toggleKill(true));
 document.getElementById("btn-resume").addEventListener("click", () => toggleKill(false));
+
+// Mount TradingView chart immediately with default symbol; refreshAll() will
+// re-mount with the correct data source once /api/overview lands.
+mountTradingView(_tvSymbol, _tvInterval, "BYBIT");
 
 refreshAll();
 setInterval(refreshAll, REFRESH_MS);
