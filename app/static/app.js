@@ -117,12 +117,37 @@ function renderMarkets(rows) {
     const change = r.change_pct || 0;
     const cls = change > 0.1 ? "up" : change < -0.1 ? "down" : "flat";
     const selected = r.symbol === _tvSymbol ? " selected" : "";
+
+    // Indicator chips — show the user why the engine likes or dislikes this coin.
+    const chips = [];
+    if (r.bias === "long") chips.push(`<span class="chip long">LONG</span>`);
+    else if (r.bias === "short") chips.push(`<span class="chip short">SHORT</span>`);
+    else chips.push(`<span class="chip watch">WATCH</span>`);
+    if (r.rsi != null) {
+      const rsiCls = r.rsi > 70 ? "bad" : r.rsi < 30 ? "good" : "";
+      chips.push(`<span class="chip ${rsiCls}">RSI ${r.rsi.toFixed(0)}</span>`);
+    }
+    if (r.adx != null) {
+      const adxCls = r.adx >= 25 ? "good" : r.adx < 20 ? "warn" : "";
+      chips.push(`<span class="chip ${adxCls}">ADX ${r.adx.toFixed(0)}</span>`);
+    }
+    if (r.trend) {
+      const arrow = r.trend === "up" ? "▲" : r.trend === "down" ? "▼" : "→";
+      const tCls = r.trend === "up" ? "good" : r.trend === "down" ? "bad" : "";
+      chips.push(`<span class="chip ${tCls}">${arrow} trend</span>`);
+    }
+    if (r.macd_hist != null) {
+      const mCls = r.macd_hist > 0 ? "good" : "bad";
+      chips.push(`<span class="chip ${mCls}">MACD ${r.macd_hist >= 0 ? "+" : ""}${r.macd_hist.toFixed(3)}</span>`);
+    }
+
     return `
       <div class="market-card ${cls}${selected}" data-symbol="${r.symbol}">
         <div class="market-sym">${r.symbol}</div>
         <div class="market-price">${fmtPrice(r.last)}</div>
         <div class="market-change ${classPN(change)}">${change >= 0 ? "+" : ""}${change.toFixed(2)}%</div>
         <div class="market-vol">vol ${r.volume_24h ? (r.volume_24h / 1_000_000).toFixed(1) + "M" : "—"}</div>
+        <div class="chips">${chips.join("")}</div>
       </div>
     `;
   }).join("");
@@ -467,9 +492,127 @@ const fmtSignedPct = (n) => {
   return (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
 };
 
+// Alert feed state — we dedupe browser notifications by alert id.
+let _seenAlertIds = new Set();
+let _audioCtx = null;
+
+function beep() {
+  try {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = _audioCtx.createOscillator();
+    const g = _audioCtx.createGain();
+    o.connect(g); g.connect(_audioCtx.destination);
+    o.frequency.value = 880; o.type = "triangle";
+    g.gain.setValueAtTime(0.08, _audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, _audioCtx.currentTime + 0.25);
+    o.start(); o.stop(_audioCtx.currentTime + 0.25);
+  } catch (e) { /* audio unsupported — silent */ }
+}
+
+function browserNotify(alert) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  try {
+    new Notification(alert.title, {
+      body: alert.message || "",
+      tag: `tbtc-${alert.id}`,
+      icon: "/ui/favicon.ico",
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function renderAlerts(data) {
+  const feed = document.getElementById("alerts-feed");
+  const badge = document.getElementById("alerts-unread");
+  const items = data.items || [];
+  const unread = data.unread || 0;
+
+  if (unread > 0) {
+    badge.style.display = "inline-block";
+    badge.textContent = unread;
+  } else {
+    badge.style.display = "none";
+  }
+
+  // Fire browser notifications + beep for any alert IDs we haven't seen yet.
+  // Skip the first refresh so we don't dump 50 notifications at page load.
+  if (_seenAlertIds.size > 0) {
+    const fresh = items.filter(a => !_seenAlertIds.has(a.id) && !a.read);
+    if (fresh.length > 0) {
+      beep();
+      fresh.slice(0, 3).forEach(browserNotify);  // cap bursts at 3
+    }
+  }
+  items.forEach(a => _seenAlertIds.add(a.id));
+
+  if (!items.length) {
+    feed.innerHTML = `<div class="muted" style="padding:14px;">no alerts yet — signals and position events will show up here as they happen.</div>`;
+    return;
+  }
+  feed.innerHTML = items.slice(0, 40).map(a => {
+    const ago = relTime(a.ts);
+    const severity = a.severity || "info";
+    const unreadCls = a.read ? "" : "unread";
+    return `
+      <div class="alert-row ${severity} ${unreadCls}">
+        <div class="alert-kind ${a.kind}">${a.kind}</div>
+        <div class="alert-main">
+          <div class="alert-title">${escapeHtml(a.title)}</div>
+          <div class="alert-msg">${escapeHtml(a.message || "")}</div>
+        </div>
+        <div class="alert-time">${ago}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function relTime(iso) {
+  if (!iso) return "—";
+  const secs = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 60) return `${secs}s`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h`;
+  return `${Math.round(secs / 86400)}d`;
+}
+
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+async function enableBrowserAlerts() {
+  if (typeof Notification === "undefined") {
+    alert("This browser doesn't support native notifications.");
+    return;
+  }
+  if (Notification.permission === "granted") {
+    alert("Browser alerts are already enabled.");
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  const btn = document.getElementById("btn-enable-browser-notify");
+  if (perm === "granted") {
+    btn.textContent = "Browser alerts ON";
+    btn.disabled = true;
+    new Notification("Terminal-BTC alerts enabled", {
+      body: "You'll get a browser push on every signal, open, TP, SL, and close.",
+    });
+  } else {
+    btn.textContent = "Enable browser alerts";
+  }
+}
+
+async function markAllAlertsRead() {
+  try {
+    await fetchJSON("/control/notifications/mark-read", { method: "POST" });
+    await refreshAll();
+  } catch (e) { alert("failed: " + e.message); }
+}
+
 async function refreshAll() {
   try {
-    const [overview, positions, trades, decisions, equity, stats, signals, backtest, markets] = await Promise.all([
+    const [overview, positions, trades, decisions, equity, stats, signals, backtest, markets, alerts] = await Promise.all([
       fetchJSON("/api/overview"),
       fetchJSON("/api/positions"),
       fetchJSON("/api/trades?limit=50"),
@@ -479,6 +622,7 @@ async function refreshAll() {
       fetchJSON("/api/signals/latest?limit=20"),
       fetchJSON("/api/backtest"),
       fetchJSON("/api/markets"),
+      fetchJSON("/api/notifications?limit=50"),
     ]);
     window._tvSource = (overview.data_source || "bybit").toUpperCase();
     renderStatusFlags(overview);
@@ -493,6 +637,7 @@ async function refreshAll() {
     renderStats(stats);
     renderSignals(signals);
     renderBacktest(backtest);
+    renderAlerts(alerts);
 
     // Sync Run-backtest button label with real backtest state.
     const btBtn = document.getElementById("btn-backtest");
@@ -586,6 +731,15 @@ document.getElementById("btn-backtest").addEventListener("click", runBacktest);
 document.getElementById("btn-macro").addEventListener("click", refreshMacro);
 document.getElementById("btn-kill").addEventListener("click", () => toggleKill(true));
 document.getElementById("btn-resume").addEventListener("click", () => toggleKill(false));
+document.getElementById("btn-enable-browser-notify").addEventListener("click", enableBrowserAlerts);
+document.getElementById("btn-mark-read").addEventListener("click", markAllAlertsRead);
+
+// Reflect the current browser-notification permission state on the button.
+if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+  const b = document.getElementById("btn-enable-browser-notify");
+  b.textContent = "Browser alerts ON";
+  b.disabled = true;
+}
 
 // Mount TradingView chart immediately with default symbol; refreshAll() will
 // re-mount with the correct data source once /api/overview lands.

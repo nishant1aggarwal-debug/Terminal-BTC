@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 import asyncio
 
-from app.services import backtest, macro, risk
+from app.services import backtest, macro, notifications, risk
 from app.services.scheduler import tick
 
 router = APIRouter(prefix="/control", tags=["control"])
@@ -48,6 +48,12 @@ async def macro_refresh() -> dict[str, Any]:
     if result is None:
         return {"ok": False, "error": "fetch_failed"}
     return {"ok": True, **result}
+
+
+@router.post("/notifications/mark-read")
+async def mark_read() -> dict[str, Any]:
+    count = notifications.mark_all_read()
+    return {"ok": True, "marked_read": count}
 
 
 @router.post("/backtest-now")

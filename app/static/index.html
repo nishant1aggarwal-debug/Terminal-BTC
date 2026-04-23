@@ -28,6 +28,22 @@
   </div>
 
   <main>
+    <section class="panel alerts-panel">
+      <div class="section-head">
+        <h2>
+          Trade alerts
+          <span id="alerts-unread" class="unread-badge" style="display:none;">0</span>
+        </h2>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button class="btn" id="btn-enable-browser-notify" style="font-size:12px; padding:5px 10px;">Enable browser alerts</button>
+          <button class="btn" id="btn-mark-read" style="font-size:12px; padding:5px 10px;">Mark all read</button>
+        </div>
+      </div>
+      <div id="alerts-feed" class="alerts-feed">
+        <div class="muted" style="padding:14px;">no alerts yet — signals and position events will show up here as they happen.</div>
+      </div>
+    </section>
+
     <section class="kpi-row">
       <div class="kpi">
         <div class="kpi-label">Equity</div>

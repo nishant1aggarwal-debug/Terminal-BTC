@@ -17,6 +17,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.exchange import data_source
 from app.services import backtest as backtest_svc
+from app.services import notifications as notifications_svc
 from app.services import scheduler as scheduler_svc
 from app.models import (
     BacktestReport,
@@ -119,6 +120,7 @@ async def overview() -> dict[str, Any]:
         } if fg else None,
         "scheduler": scheduler_svc.heartbeat(),
         "backtest": backtest_svc.state(),
+        "notifications_unread": notifications_svc.unread_count(),
     }
 
 
@@ -128,9 +130,14 @@ _MARKETS_TTL_SEC = 20
 
 @router.get("/markets")
 async def markets() -> list[dict[str, Any]]:
-    """Current price + 24h change + volume for every TRADE_SYMBOL.
+    """Current price + indicators for every TRADE_SYMBOL.
 
-    Cached 20s to keep the dashboard snappy without hammering the exchange.
+    Merges (1) the exchange's ticker (price, 24h change, volume) with (2) the
+    most recent Decision's snapshot (RSI, MACD hist, ADX, EMA-stack trend,
+    composite score bias) so each card shows at-a-glance whether the rules
+    engine likes or dislikes the coin right now.
+
+    Cached 20s — indicator data updates at each scheduler tick anyway.
     """
     import time
     now = time.time()
@@ -144,9 +151,44 @@ async def markets() -> list[dict[str, Any]]:
     except Exception as exc:
         return [{"symbol": s, "error": str(exc)} for s in symbols]
 
+    # Latest decision snapshot per symbol — one pass over the most recent 5k rows.
+    latest_snaps: dict[str, dict[str, Any]] = {}
+    latest_actions: dict[str, dict[str, Any]] = {}
+    with get_session() as s:
+        decisions = s.exec(select(Decision).order_by(desc(Decision.ts)).limit(5_000)).all()
+    for d in decisions:
+        if d.symbol in latest_snaps:
+            continue
+        try:
+            latest_snaps[d.symbol] = json.loads(d.snapshot_json)
+            latest_actions[d.symbol] = {
+                "action": d.action,
+                "confidence": d.confidence,
+                "reasoning": d.reasoning,
+            }
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+
     out: list[dict[str, Any]] = []
     for sym in symbols:
         t = tickers.get(sym) or {}
+        snap = latest_snaps.get(sym) or {}
+        last_action = latest_actions.get(sym) or {}
+
+        # Derive a compact "bias" label: long / short / watch based on the
+        # latest decision and whether EMA stack is bullish/bearish.
+        ema20 = snap.get("ema_20") or 0
+        ema50 = snap.get("ema_50") or 0
+        ema200 = snap.get("ema_200") or 0
+        trend = "up" if ema20 > ema50 > ema200 else "down" if ema20 < ema50 < ema200 else "flat"
+
+        bias = "watch"
+        action = last_action.get("action")
+        if action == "buy":
+            bias = "long"
+        elif action == "sell":
+            bias = "short"
+
         out.append({
             "symbol": sym,
             "last": t.get("last") or t.get("close"),
@@ -157,10 +199,29 @@ async def markets() -> list[dict[str, Any]]:
             "change_pct": t.get("percentage"),
             "volume_24h": t.get("quoteVolume") or t.get("baseVolume"),
             "source": settings.data_source,
+            # Rules-engine readouts from the last decision:
+            "rsi": snap.get("rsi_14"),
+            "macd_hist": snap.get("macd_hist"),
+            "adx": snap.get("adx_14"),
+            "trend": trend,
+            "bias": bias,
+            "last_action": action,
+            "last_confidence": last_action.get("confidence"),
         })
     _MARKETS_CACHE["ts"] = now
     _MARKETS_CACHE["data"] = out
     return out
+
+
+@router.get("/notifications")
+async def notifications_list(
+    limit: int = Query(50, ge=1, le=500),
+    unread_only: bool = Query(False),
+) -> dict[str, Any]:
+    return {
+        "unread": notifications_svc.unread_count(),
+        "items": notifications_svc.list_recent(limit=limit, unread_only=unread_only),
+    }
 
 
 @router.get("/positions")

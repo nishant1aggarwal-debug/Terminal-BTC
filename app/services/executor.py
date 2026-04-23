@@ -13,7 +13,7 @@ from app.db import get_session
 from app.exchange import binance_client
 from app.logging_setup import get_logger
 from app.models import ClosedTrade, DailyPnL, Position, Trade
-from app.services import risk
+from app.services import notifications, risk, targets
 
 log = get_logger(__name__)
 
@@ -76,6 +76,9 @@ def _paper_equity_usdt() -> float:
     return max(0.0, settings.paper_starting_equity_usdt + realized - open_notional)
 
 
+MAX_PYRAMID_ADDS = 2  # entries beyond initial open (so 3 total tranches max)
+
+
 def _update_position(
     symbol: str,
     side: str,
@@ -92,6 +95,7 @@ def _update_position(
     """
     now = datetime.now(timezone.utc)
     realized_net = 0.0
+    event: dict | None = None
     with get_session() as s:
         pos = s.get(Position, symbol)
         if pos is None:
@@ -99,6 +103,9 @@ def _update_position(
         signed = amount if side == "buy" else -amount
         new_qty = pos.qty + signed
         closing = pos.qty != 0 and (pos.qty > 0) != (signed > 0)
+
+        was_open = abs(pos.qty) > 1e-9
+        was_fresh_open = not was_open
 
         if closing:
             closed_qty = min(abs(pos.qty), abs(signed))
@@ -143,12 +150,28 @@ def _update_position(
             pos.opened_at = None
             pos.opened_decision_id = None
             pos.opened_confidence = None
+            pos.sl_price = None
+            pos.tp1_price = None
+            pos.tp2_price = None
+            pos.tp1_hit = False
+            pos.tp2_hit = False
+            pos.trailing_high_water = None
+            pos.initial_qty = 0.0
+            pos.adds = 0
+            event = {"kind": "CLOSE", "side": side, "qty": amount, "price": fill_price,
+                     "pnl": realized_net}
         elif closing and (pos.qty > 0) != (new_qty > 0):
             # Crossed through zero into the opposite side: remainder opens a fresh position.
             pos.avg_entry = fill_price
             pos.opened_at = now
             pos.opened_decision_id = decision_id
             pos.opened_confidence = confidence
+            pos.initial_qty = abs(new_qty)
+            pos.adds = 0
+            pos.tp1_hit = False
+            pos.tp2_hit = False
+            event = {"kind": "FLIP_OPEN", "side": side, "qty": abs(new_qty),
+                     "price": fill_price, "confidence": confidence}
         elif not closing and (pos.qty == 0 or signed * pos.qty > 0):
             # Fresh open or same-side add.
             if pos.opened_at is None:
@@ -156,15 +179,38 @@ def _update_position(
                 pos.opened_decision_id = decision_id
                 pos.opened_confidence = confidence
                 pos.avg_entry = fill_price
+                pos.initial_qty = amount
+                pos.adds = 0
+                event = {"kind": "OPEN", "side": side, "qty": amount,
+                         "price": fill_price, "confidence": confidence}
             else:
                 total_cost = pos.avg_entry * abs(pos.qty - signed) + fill_price * amount
                 pos.avg_entry = total_cost / abs(new_qty)
+                pos.adds = (pos.adds or 0) + 1
+                event = {"kind": "ADD", "side": side, "qty": amount,
+                         "price": fill_price, "add_index": pos.adds}
         pos.updated_at = now
         s.add(pos)
         s.commit()
 
     if realized_net != 0.0:
         _bump_daily_realized(realized_net)
+
+    # Fire notifications OUTSIDE the session scope to avoid nested transactions.
+    if event is not None:
+        if event["kind"] == "OPEN" or event["kind"] == "FLIP_OPEN":
+            notifications.position_opened(
+                symbol, event["side"], event["qty"], event["price"],
+            )
+        elif event["kind"] == "ADD":
+            notifications.position_added(
+                symbol, event["side"], event["qty"], event["price"], event["add_index"],
+            )
+        elif event["kind"] == "CLOSE":
+            notifications.position_closed(
+                symbol, event["side"], event["qty"], event["price"], event["pnl"],
+            )
+
     return realized_net
 
 
@@ -175,6 +221,7 @@ def execute(
     size_pct: float,
     last_price: float,
     confidence: float | None = None,
+    atr: float | None = None,
 ) -> ExecutionResult:
     settings = get_settings()
 
@@ -194,6 +241,21 @@ def execute(
                 ok=True, status=existing.status, trade_id=existing.id, message="idempotent_replay"
             )
 
+    # Pyramid-add guard: if a same-direction signal fires while we already hold
+    # a position, scale the size down and cap total adds. A 3rd add on BTC
+    # while long is just FOMO — we refuse.
+    with get_session() as s:
+        pos = s.get(Position, symbol)
+    if pos is not None and abs(pos.qty) > 1e-9:
+        same_direction = (pos.qty > 0 and action == "buy") or (pos.qty < 0 and action == "sell")
+        if same_direction:
+            if (pos.adds or 0) >= MAX_PYRAMID_ADDS:
+                notifications.risk_veto(symbol, action, f"max pyramid adds ({MAX_PYRAMID_ADDS}) reached")
+                return ExecutionResult(ok=False, status="rejected", trade_id=None,
+                                       message="max_pyramid_adds")
+            # Each add half the size of the previous — 1.0, 0.5, 0.25 of initial.
+            size_pct = size_pct * (0.5 ** ((pos.adds or 0) + 1))
+
     if settings.paper_mode:
         equity = _paper_equity_usdt()
     else:
@@ -203,6 +265,7 @@ def execute(
     approval = risk.check(action=action, symbol=symbol, notional_usdt=notional)
     if not approval.ok:
         log.warning("executor_risk_veto", decision_id=decision_id, reason=approval.reason)
+        notifications.risk_veto(symbol, action, approval.reason)
         return ExecutionResult(ok=False, status="rejected", trade_id=None, message=approval.reason)
 
     if last_price <= 0:
@@ -247,6 +310,8 @@ def execute(
             s.add(t)
             s.commit()
         _update_position(symbol, action, amount, fill_price, commission, decision_id, confidence)
+        if atr is not None:
+            targets.set_targets_on_open(symbol, fill_price, atr, action)
         log.info(
             "executor_dry_run",
             decision_id=decision_id,
@@ -293,6 +358,8 @@ def execute(
         s.commit()
 
     _update_position(symbol, action, filled, avg_price, live_commission, decision_id, confidence)
+    if atr is not None:
+        targets.set_targets_on_open(symbol, avg_price, atr, action)
     log.info(
         "executor_filled",
         decision_id=decision_id,

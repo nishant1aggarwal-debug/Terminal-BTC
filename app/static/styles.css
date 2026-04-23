@@ -234,6 +234,53 @@ main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
 .market-card.down { border-left: 3px solid var(--red); }
 .market-card.flat { border-left: 3px solid var(--muted); }
 
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chip {
+  font-size: 10px; padding: 2px 6px; border-radius: 3px;
+  background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chip.good { color: var(--green); border-color: rgba(74,222,128,0.4); }
+.chip.bad { color: var(--red); border-color: rgba(248,113,113,0.4); }
+.chip.warn { color: var(--amber); border-color: rgba(251,191,36,0.4); }
+.chip.long { background: rgba(74,222,128,0.18); color: var(--green); border-color: rgba(74,222,128,0.4); font-weight: 600; }
+.chip.short { background: rgba(248,113,113,0.18); color: var(--red); border-color: rgba(248,113,113,0.4); font-weight: 600; }
+.chip.watch { color: var(--muted); }
+
+.alerts-panel { border-left: 3px solid var(--accent); }
+.alerts-feed {
+  max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
+}
+.alert-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 8px; background: var(--panel-2);
+  border-left: 3px solid var(--border);
+}
+.alert-row.unread { background: rgba(76,201,240,0.08); }
+.alert-row.success { border-left-color: var(--green); }
+.alert-row.warning { border-left-color: var(--amber); }
+.alert-row.danger { border-left-color: var(--red); }
+.alert-kind {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.05em;
+  padding: 2px 8px; border-radius: 4px; min-width: 54px; text-align: center;
+  background: var(--panel); color: var(--muted);
+}
+.alert-kind.SIGNAL, .alert-kind.OPEN { background: rgba(76,201,240,0.15); color: var(--accent); }
+.alert-kind.ADD { background: rgba(251,191,36,0.15); color: var(--amber); }
+.alert-kind.TP1, .alert-kind.TP2, .alert-kind.CLOSE { background: rgba(74,222,128,0.15); color: var(--green); }
+.alert-kind.SL, .alert-kind.TRAIL { background: rgba(248,113,113,0.15); color: var(--red); }
+.alert-kind.RISK { background: rgba(251,191,36,0.15); color: var(--amber); }
+.alert-main { flex: 1; min-width: 0; }
+.alert-title { font-size: 13px; font-weight: 600; }
+.alert-msg { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.alert-time { font-size: 10px; color: var(--muted); text-align: right; min-width: 60px; }
+
+.unread-badge {
+  display: inline-block; margin-left: 8px;
+  background: var(--red); color: #fff; font-size: 10px; font-weight: 700;
+  padding: 1px 7px; border-radius: 10px; vertical-align: middle;
+}
+
 @media (max-width: 640px) {
   .markets-grid { grid-template-columns: repeat(2, 1fr); }
   .heartbeat-bar { padding: 8px 12px; font-size: 11px; }

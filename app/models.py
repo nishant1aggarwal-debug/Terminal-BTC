@@ -78,7 +78,37 @@ class Position(SQLModel, table=True):
     opened_at: Optional[datetime] = None  # when qty went from 0 to non-zero
     opened_decision_id: Optional[int] = None
     opened_confidence: Optional[float] = None
+    # Multi-target exit plan stored at open time. Monitored every tick.
+    sl_price: Optional[float] = None
+    tp1_price: Optional[float] = None
+    tp1_hit: bool = False
+    tp2_price: Optional[float] = None
+    tp2_hit: bool = False
+    trailing_high_water: Optional[float] = None  # tracked once TP1 hits; used for trailing SL
+    initial_qty: float = 0.0                     # original size, for scaling partial exits
+    adds: int = 0                                # how many pyramid adds so far (0, 1, 2, ...)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+class Notification(SQLModel, table=True):
+    """User-facing alert — a new row per fire. Drives the dashboard toast feed
+    and the optional browser push so the user can copy the call to a real
+    exchange without watching the page.
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ts: datetime = Field(default_factory=_utcnow, index=True)
+    kind: str = Field(index=True)  # SIGNAL | OPEN | CLOSE | ADD | TP1 | TP2 | SL | TRAIL | RISK | INFO
+    severity: str = "info"  # info | success | warning | danger
+    symbol: str = Field(index=True)
+    title: str
+    message: str = ""
+    action: Optional[str] = None  # buy | sell | close | add
+    price: Optional[float] = None
+    sl: Optional[float] = None
+    tp1: Optional[float] = None
+    tp2: Optional[float] = None
+    confidence: Optional[float] = None
+    read: bool = Field(default=False, index=True)
 
 
 class DailyPnL(SQLModel, table=True):

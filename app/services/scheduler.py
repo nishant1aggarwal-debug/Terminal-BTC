@@ -11,7 +11,7 @@ from app.db import get_session
 from app.exchange import data_source
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import backtest, executor, funding, macro, signal
+from app.services import backtest, executor, funding, macro, notifications, signal, targets
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -64,6 +64,15 @@ async def _tick_symbol(
         log.error("snapshot_failed", symbol=symbol, error=str(exc))
         return {"symbol": symbol, "status": "skipped", "reason": f"snapshot: {exc}"}
 
+    # STEP 1 — target monitor runs BEFORE signal generation. If the latest bar
+    # crossed SL/TP1/TP2/trailing for an open position, exit the appropriate
+    # tranche first. This way the signal engine sees the post-exit state (flat
+    # or reduced), not a stale pre-exit one.
+    try:
+        await asyncio.to_thread(targets.check_and_exit, symbol, snap.last_close)
+    except Exception as exc:
+        log.warning("target_check_failed", symbol=symbol, error=str(exc))
+
     position = _current_position(symbol)
 
     try:
@@ -71,6 +80,25 @@ async def _tick_symbol(
     except Exception as exc:
         log.error("signal_generation_failed", symbol=symbol, error=str(exc))
         return {"symbol": symbol, "status": "skipped", "reason": f"signal_error: {exc}"}
+
+    # Fire a SIGNAL notification whenever a fresh buy/sell clears the threshold.
+    # This is separate from OPEN — it's the heads-up the user sees BEFORE the
+    # executor processes risk/sizing, so they can copy the call to their real
+    # exchange even if we veto our own paper fill.
+    if decision.action in {"buy", "sell"} and source == "scheduler":
+        atr = float(snap.atr_14) if snap.atr_14 else 0.0
+        tp1 = snap.last_close + 1.5 * atr if decision.action == "buy" else snap.last_close - 1.5 * atr
+        tp2 = snap.last_close + 2.5 * atr if decision.action == "buy" else snap.last_close - 2.5 * atr
+        notifications.signal_fired(
+            symbol=symbol,
+            action=decision.action,
+            confidence=decision.confidence or 0.0,
+            entry=snap.last_close,
+            sl=decision.stop_loss,
+            tp1=tp1,
+            tp2=tp2,
+            reasoning=decision.reasoning,
+        )
 
     with get_session() as s:
         row = Decision(
@@ -99,6 +127,7 @@ async def _tick_symbol(
         decision.size_pct,
         snap.last_close,
         decision.confidence,
+        snap.atr_14,
     )
     log.info(
         "tick_complete",
