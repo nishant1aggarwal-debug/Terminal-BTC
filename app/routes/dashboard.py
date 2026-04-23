@@ -16,6 +16,7 @@ from sqlmodel import desc, select
 from app.config import get_settings
 from app.db import get_session
 from app.exchange import data_source
+from app.services import backtest as backtest_svc
 from app.services import scheduler as scheduler_svc
 from app.models import (
     BacktestReport,
@@ -117,6 +118,7 @@ async def overview() -> dict[str, Any]:
             "fetched_at": fg.fetched_at.isoformat(),
         } if fg else None,
         "scheduler": scheduler_svc.heartbeat(),
+        "backtest": backtest_svc.state(),
     }
 
 
@@ -427,6 +429,7 @@ async def backtest_latest() -> dict[str, Any]:
         "total_losses": total_losses,
         "overall_win_rate_pct": overall_wr,
         "avg_pnl_pct": avg_pnl_pct,
+        "state": backtest_svc.state(),
         "reports": [
             {
                 "symbol": r.symbol,

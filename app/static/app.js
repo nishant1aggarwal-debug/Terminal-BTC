@@ -100,6 +100,11 @@ function renderHeartbeat(ov) {
 function renderMarkets(rows) {
   const host = document.getElementById("markets-grid");
   const updEl = document.getElementById("markets-updated");
+  const titleEl = document.getElementById("markets-title");
+  if (titleEl) {
+    const n = rows?.length || 0;
+    titleEl.textContent = `Live markets — ${n} USDT pairs`;
+  }
   if (!rows || !rows.length) {
     host.innerHTML = `<div class="muted" style="padding:20px;">no market data yet</div>`;
     return;
@@ -426,8 +431,17 @@ function renderBacktest(bt) {
   const pnlEl = document.getElementById("bt-pnl");
   pnlEl.textContent = bt.symbols_covered ? fmtSignedPct(bt.avg_pnl_pct) : "—";
   pnlEl.className = "stat-value " + classPN(bt.avg_pnl_pct);
-  document.getElementById("backtest-generated").textContent = bt.generated_at
-    ? `generated ${fmtTime(bt.generated_at)}` : "not yet run";
+
+  const st = bt.state || {};
+  let label;
+  if (st.running) {
+    label = `running ${st.completed}/${st.total} · ${st.last_symbol || "…"}`;
+  } else if (bt.generated_at) {
+    label = `generated ${fmtTime(bt.generated_at)}`;
+  } else {
+    label = "not yet run";
+  }
+  document.getElementById("backtest-generated").textContent = label;
   document.getElementById("backtest-count").textContent = bt.reports.length;
 
   const tbody = document.querySelector("#backtest-table tbody");
@@ -479,6 +493,19 @@ async function refreshAll() {
     renderStats(stats);
     renderSignals(signals);
     renderBacktest(backtest);
+
+    // Sync Run-backtest button label with real backtest state.
+    const btBtn = document.getElementById("btn-backtest");
+    if (btBtn && overview.backtest) {
+      if (overview.backtest.running) {
+        btBtn.disabled = true;
+        btBtn.textContent = `Backtesting ${overview.backtest.completed}/${overview.backtest.total}…`;
+      } else if (btBtn.disabled && !btBtn.textContent.startsWith("Starting")) {
+        btBtn.disabled = false;
+        btBtn.textContent = "Run backtest";
+      }
+    }
+
     document.getElementById("last-refresh").textContent = `refreshed ${new Date().toLocaleTimeString()}`;
 
     // Auto-fire the first tick if the DB is truly empty, so new users see data
@@ -496,10 +523,21 @@ async function refreshAll() {
 
 async function runBacktest() {
   const btn = document.getElementById("btn-backtest");
-  btn.disabled = true; btn.textContent = "Backtesting…";
-  try { await fetchJSON("/control/backtest-now", { method: "POST" }); }
-  catch (e) { alert("backtest failed: " + e.message); }
-  finally { btn.disabled = false; btn.textContent = "Run backtest"; await refreshAll(); }
+  btn.disabled = true; btn.textContent = "Starting…";
+  try {
+    await fetchJSON("/control/backtest-now", { method: "POST" });
+    // Server runs it in the background; the dashboard's 10s poll will
+    // surface progress via /api/overview.backtest.running.
+    btn.textContent = "Backtesting…";
+    await refreshAll();
+  } catch (e) {
+    alert("backtest failed to start: " + e.message);
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "Run backtest";
+    }, 2000);
+  }
 }
 
 async function refreshMacro() {

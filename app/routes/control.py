@@ -5,6 +5,8 @@ from typing import Any
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+import asyncio
+
 from app.services import backtest, macro, risk
 from app.services.scheduler import tick
 
@@ -42,34 +44,27 @@ async def tick_now() -> dict[str, Any]:
 
 @router.post("/macro-refresh")
 async def macro_refresh() -> dict[str, Any]:
-    row = macro.refresh_fear_greed()
-    if row is None:
+    result = await asyncio.to_thread(macro.refresh_fear_greed)
+    if result is None:
         return {"ok": False, "error": "fetch_failed"}
-    return {
-        "ok": True,
-        "name": row.name,
-        "value": row.value,
-        "classification": row.classification,
-        "fetched_at": row.fetched_at.isoformat(),
-    }
+    return {"ok": True, **result}
 
 
 @router.post("/backtest-now")
 async def backtest_now() -> dict[str, Any]:
-    """Run the backtester on every TRADE_SYMBOL right now and return a summary."""
-    reports = backtest.run_all()
-    return {
-        "ok": True,
-        "count": len(reports),
-        "reports": [
-            {
-                "symbol": r.symbol,
-                "trades": r.trades,
-                "win_rate_pct": r.win_rate_pct,
-                "profit_factor": r.profit_factor,
-                "net_pnl_pct": r.net_pnl_pct,
-                "max_drawdown_pct": r.max_drawdown_pct,
-            }
-            for r in reports
-        ],
-    }
+    """Kick off a full backtest in the background and return immediately.
+
+    Running the 12-symbol × 500-candle replay synchronously blocked
+    Render's single worker for ~90s — long enough to 502 out and to
+    starve every other API call. Fire-and-forget lets the dashboard
+    keep refreshing while the work runs in a thread pool.
+    """
+    async def _runner():
+        try:
+            await asyncio.to_thread(backtest.run_all)
+        except Exception as exc:
+            # Swallow so a single symbol failure doesn't take down the task.
+            import logging
+            logging.getLogger(__name__).exception("backtest_background_failed: %s", exc)
+    asyncio.create_task(_runner())
+    return {"ok": True, "message": "backtest started in background; poll /api/backtest"}

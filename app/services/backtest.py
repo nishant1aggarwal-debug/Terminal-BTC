@@ -48,45 +48,66 @@ class _VirtualTrade:
     take_profit: float
 
 
-def _snapshot_at(df: pd.DataFrame, i: int, symbol: str, timeframe: str) -> dict[str, Any]:
-    """Build a Snapshot-shaped dict from the slice bars[0..i] (inclusive)."""
-    window = df.iloc[: i + 1]
-    close = window["close"]
-    high = window["high"]
-    low = window["low"]
-    rsi = RSIIndicator(close=close, window=14).rsi()
-    macd = MACD(close=close, window_slow=26, window_fast=12, window_sign=9)
-    ema20 = EMAIndicator(close=close, window=20).ema_indicator()
-    ema50 = EMAIndicator(close=close, window=50).ema_indicator()
-    ema200 = EMAIndicator(close=close, window=200).ema_indicator()
-    atr = AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range()
+def _precompute_indicators(df: pd.DataFrame) -> dict[str, pd.Series]:
+    """Compute every indicator ONCE over the full OHLCV frame.
+
+    The old code rebuilt RSI/MACD/EMA/BB/StochRSI/ADX on every bar during
+    the backtest loop — O(n²). 500 bars × 9 indicators × O(n) per
+    compute blew the Render free-tier worker for ~90s across 12 symbols.
+
+    This helper runs the computations once in O(n); the loop just does
+    `rsi.iloc[i]` at each step — O(1).
+    """
+    close, high, low = df["close"], df["high"], df["low"]
     bb = BollingerBands(close=close, window=20, window_dev=2)
     stoch_rsi = StochRSIIndicator(close=close, window=14, smooth1=3, smooth2=3)
-    adx = ADXIndicator(high=high, low=low, close=close, window=14).adx()
-    lc = float(close.iloc[-1])
-    bb_up = float(bb.bollinger_hband().iloc[-1])
-    bb_lo = float(bb.bollinger_lband().iloc[-1])
+    macd = MACD(close=close, window_slow=26, window_fast=12, window_sign=9)
+    return {
+        "rsi": RSIIndicator(close=close, window=14).rsi(),
+        "macd": macd.macd(),
+        "macd_signal": macd.macd_signal(),
+        "macd_hist": macd.macd_diff(),
+        "ema20": EMAIndicator(close=close, window=20).ema_indicator(),
+        "ema50": EMAIndicator(close=close, window=50).ema_indicator(),
+        "ema200": EMAIndicator(close=close, window=200).ema_indicator(),
+        "atr": AverageTrueRange(high=high, low=low, close=close, window=14).average_true_range(),
+        "bb_upper": bb.bollinger_hband(),
+        "bb_middle": bb.bollinger_mavg(),
+        "bb_lower": bb.bollinger_lband(),
+        "stoch_rsi_k": stoch_rsi.stochrsi_k() * 100.0,
+        "stoch_rsi_d": stoch_rsi.stochrsi_d() * 100.0,
+        "adx": ADXIndicator(high=high, low=low, close=close, window=14).adx(),
+    }
+
+
+def _snapshot_from_precomputed(
+    df: pd.DataFrame, ind: dict[str, pd.Series], i: int, symbol: str, timeframe: str
+) -> dict[str, Any]:
+    """O(1) snapshot: just read pre-computed indicator values at bar index i."""
+    lc = float(df["close"].iloc[i])
+    bb_up = float(ind["bb_upper"].iloc[i])
+    bb_lo = float(ind["bb_lower"].iloc[i])
     bb_pct = (lc - bb_lo) / (bb_up - bb_lo) if bb_up > bb_lo else 0.5
     return {
         "symbol": symbol,
         "timeframe": timeframe,
         "last_close": lc,
-        "rsi_14": float(rsi.iloc[-1]),
-        "macd": float(macd.macd().iloc[-1]),
-        "macd_signal": float(macd.macd_signal().iloc[-1]),
-        "macd_hist": float(macd.macd_diff().iloc[-1]),
-        "ema_20": float(ema20.iloc[-1]),
-        "ema_50": float(ema50.iloc[-1]),
-        "ema_200": float(ema200.iloc[-1]),
-        "atr_14": float(atr.iloc[-1]),
+        "rsi_14": float(ind["rsi"].iloc[i]),
+        "macd": float(ind["macd"].iloc[i]),
+        "macd_signal": float(ind["macd_signal"].iloc[i]),
+        "macd_hist": float(ind["macd_hist"].iloc[i]),
+        "ema_20": float(ind["ema20"].iloc[i]),
+        "ema_50": float(ind["ema50"].iloc[i]),
+        "ema_200": float(ind["ema200"].iloc[i]),
+        "atr_14": float(ind["atr"].iloc[i]),
         "bb_upper": bb_up,
-        "bb_middle": float(bb.bollinger_mavg().iloc[-1]),
+        "bb_middle": float(ind["bb_middle"].iloc[i]),
         "bb_lower": bb_lo,
         "bb_pct": float(bb_pct),
-        "stoch_rsi_k": float(stoch_rsi.stochrsi_k().iloc[-1] * 100.0),
-        "stoch_rsi_d": float(stoch_rsi.stochrsi_d().iloc[-1] * 100.0),
-        "adx_14": float(adx.iloc[-1]),
-        "bid": lc, "ask": lc,  # assume tight book in historical data
+        "stoch_rsi_k": float(ind["stoch_rsi_k"].iloc[i]),
+        "stoch_rsi_d": float(ind["stoch_rsi_d"].iloc[i]),
+        "adx_14": float(ind["adx"].iloc[i]),
+        "bid": lc, "ask": lc,
         "spread_bps": 1.0,
         "recent_candles": [],
     }
@@ -106,6 +127,9 @@ def backtest_symbol(symbol: str, timeframe: str, candles: int) -> BacktestReport
     ohlcv = data_source.fetch_ohlcv(symbol, timeframe=timeframe, limit=candles)
     df = pd.DataFrame(ohlcv, columns=["ts", "open", "high", "low", "close", "volume"])
     df["ts"] = pd.to_datetime(df["ts"], unit="ms", utc=True)
+
+    # Precompute once — loop becomes O(n) instead of O(n²).
+    ind = _precompute_indicators(df)
 
     settings = get_settings()
     fee_bps = settings.fee_futures_bps if settings.trade_market == "futures" else settings.fee_spot_bps
@@ -158,7 +182,7 @@ def backtest_symbol(symbol: str, timeframe: str, candles: int) -> BacktestReport
                 open_trade = None
                 continue
 
-        snap = _snapshot_at(df, i, symbol, timeframe)
+        snap = _snapshot_from_precomputed(df, ind, i, symbol, timeframe)
         pos = {"qty": 1.0 if open_trade and open_trade.side == "long" else
                        -1.0 if open_trade and open_trade.side == "short" else 0.0,
                "avg_entry": open_trade.entry_price if open_trade else 0.0}
@@ -233,15 +257,50 @@ def backtest_symbol(symbol: str, timeframe: str, candles: int) -> BacktestReport
     return report
 
 
+# Dashboard observes this so it can render "backtesting 7/12…" instead of 502.
+_state: dict[str, Any] = {
+    "running": False,
+    "started_at": None,
+    "finished_at": None,
+    "total": 0,
+    "completed": 0,
+    "last_symbol": None,
+    "last_error": None,
+}
+
+
+def state() -> dict[str, Any]:
+    return dict(_state)
+
+
 def run_all() -> list[BacktestReport]:
     """Backtest every TRADE_SYMBOL; returns the fresh reports."""
+    from datetime import datetime, timezone
     settings = get_settings()
     tf = settings.backtest_timeframe or settings.trade_timeframe
     candles = settings.backtest_candles
+    symbols = data_source.filter_supported(settings.symbols)
+
+    _state.update({
+        "running": True,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "finished_at": None,
+        "total": len(symbols),
+        "completed": 0,
+        "last_symbol": None,
+        "last_error": None,
+    })
+
     reports: list[BacktestReport] = []
-    for sym in data_source.filter_supported(settings.symbols):
+    for sym in symbols:
+        _state["last_symbol"] = sym
         try:
             reports.append(backtest_symbol(sym, tf, candles))
         except Exception as exc:
             log.error("backtest_symbol_failed", symbol=sym, error=str(exc))
+            _state["last_error"] = f"{sym}: {exc}"
+        _state["completed"] += 1
+
+    _state["running"] = False
+    _state["finished_at"] = datetime.now(timezone.utc).isoformat()
     return reports

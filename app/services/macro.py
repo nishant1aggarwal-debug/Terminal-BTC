@@ -49,7 +49,13 @@ def _fetch_fear_greed() -> dict[str, Any] | None:
         return None
 
 
-def refresh_fear_greed() -> MacroIndicator | None:
+def refresh_fear_greed() -> dict[str, Any] | None:
+    """Fetch Fear & Greed and upsert into MacroIndicator.
+
+    Returns a plain dict (not the ORM row) so callers can safely serialize
+    it after the session closes — attached SQLModel instances raise
+    DetachedInstanceError when accessed outside their session.
+    """
     parsed = _fetch_fear_greed()
     if parsed is None:
         return None
@@ -66,7 +72,13 @@ def refresh_fear_greed() -> MacroIndicator | None:
         s.add(row)
         s.commit()
     log.info("fear_greed_updated", value=parsed["value"], classification=parsed["classification"])
-    return row
+    return {
+        "name": "fear_greed",
+        "value": parsed["value"],
+        "classification": parsed["classification"],
+        "source": "alternative.me",
+        "fetched_at": now.isoformat(),
+    }
 
 
 def get_latest(name: str = "fear_greed") -> MacroIndicator | None:
