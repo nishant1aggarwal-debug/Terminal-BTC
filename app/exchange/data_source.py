@@ -36,6 +36,10 @@ _KRAKEN_MISSING_USDT = {
     # Long-established pairs where Kraken only offers USD quote
     "TRX/USDT", "MATIC/USDT", "NEAR/USDT", "APT/USDT",
     "TON/USDT", "HBAR/USDT", "ETC/USDT", "BNB/USDT",
+    # DeFi / L1s / L2s that returned empty live (Kraken only has USD quote)
+    "FIL/USDT", "ARB/USDT", "OP/USDT", "SUI/USDT", "INJ/USDT",
+    "UNI/USDT", "AAVE/USDT", "MKR/USDT", "CRV/USDT", "LDO/USDT",
+    "XLM/USDT", "SAND/USDT", "AXS/USDT",
     # Newer / retail / meme pairs Kraken hasn't USDT-quoted (at time of writing)
     "SEI/USDT", "TIA/USDT", "JUP/USDT", "PYTH/USDT", "JTO/USDT",
     "PEPE/USDT", "WIF/USDT", "BONK/USDT", "FLOKI/USDT", "ORDI/USDT",
