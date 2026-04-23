@@ -49,10 +49,27 @@ class Settings(BaseSettings):
     # TradingView
     tradingview_webhook_secret: str = "change-me"
 
-    # Trading params — 16 high-volume USDT pairs swept every tick.
+    # Trading params — wide alt universe. Alts have 2-5x the beta of BTC/ETH,
+    # so capturing their moves during macro trends is where the edge lives.
+    # Grouped by sector so it's easy to prune:
+    #   Majors    — BTC/ETH/SOL/XRP
+    #   Top-10    — DOGE/ADA/AVAX/LINK/BNB/TON/TRX/LTC
+    #   High-vol  — DOT/MATIC/NEAR/APT/ATOM/FIL/HBAR
+    #   L2/new-L1 — ARB/OP/SUI/SEI/INJ/TIA
+    #   DeFi blue-chip — UNI/AAVE/MKR/CRV/LDO
+    #   Legacy    — XLM/ALGO/XTZ/ETC
+    #   Metaverse/gaming (high-beta) — SAND/MANA/AXS
+    # 34 pairs total. Kraken doesn't list TRX/MATIC/NEAR/APT in USDT —
+    # data_source.filter_supported() drops those at runtime so backtest
+    # and tick see ~30 actively tradable symbols there.
     trade_symbols: str = (
-        "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,"
-        "BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT"
+        "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,"
+        "DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,"
+        "DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT,ATOM/USDT,FIL/USDT,HBAR/USDT,"
+        "ARB/USDT,OP/USDT,SUI/USDT,SEI/USDT,INJ/USDT,TIA/USDT,"
+        "UNI/USDT,AAVE/USDT,MKR/USDT,CRV/USDT,LDO/USDT,"
+        "XLM/USDT,ALGO/USDT,XTZ/USDT,ETC/USDT,"
+        "SAND/USDT,MANA/USDT,AXS/USDT"
     )
     trade_market: str = "futures"  # "spot" | "futures"
     trade_timeframe: str = "15m"
@@ -78,12 +95,18 @@ class Settings(BaseSettings):
     # more trades.
     min_signal_confidence: float = 0.55
     # Hard filter: refuses anything outside this list even if TradingView sends it.
-    # Covers the 16 actively traded + 9 extra high-volume alts (ATOM, UNI, FIL, ARB, OP,
-    # SUI, SEI, INJ, HBAR) you can promote by adding them to TRADE_SYMBOLS.
+    # Superset of TRADE_SYMBOLS plus meme/retail pairs you can opt into by adding
+    # to TRADE_SYMBOLS. 50+ pairs covering essentially every high-volume USDT market.
     symbol_allowlist: str = (
-        "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,"
-        "BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT,"
-        "ATOM/USDT,UNI/USDT,FIL/USDT,ARB/USDT,OP/USDT,SUI/USDT,SEI/USDT,INJ/USDT,HBAR/USDT"
+        "BTC/USDT,ETH/USDT,SOL/USDT,XRP/USDT,"
+        "DOGE/USDT,ADA/USDT,AVAX/USDT,LINK/USDT,BNB/USDT,TON/USDT,TRX/USDT,LTC/USDT,"
+        "DOT/USDT,MATIC/USDT,NEAR/USDT,APT/USDT,ATOM/USDT,FIL/USDT,HBAR/USDT,"
+        "ARB/USDT,OP/USDT,SUI/USDT,SEI/USDT,INJ/USDT,TIA/USDT,"
+        "UNI/USDT,AAVE/USDT,MKR/USDT,CRV/USDT,LDO/USDT,COMP/USDT,SNX/USDT,"
+        "XLM/USDT,ALGO/USDT,XTZ/USDT,ETC/USDT,ICP/USDT,FLOW/USDT,KSM/USDT,EGLD/USDT,"
+        "SAND/USDT,MANA/USDT,AXS/USDT,IMX/USDT,GALA/USDT,APE/USDT,CHZ/USDT,"
+        "RUNE/USDT,GRT/USDT,RNDR/USDT,FET/USDT,THETA/USDT,"
+        "SHIB/USDT,PEPE/USDT,WIF/USDT,BONK/USDT,FLOKI/USDT,JUP/USDT,PYTH/USDT,JTO/USDT,ORDI/USDT"
     )
 
     # Macro context — Fear & Greed pulled every MACRO_POLL_MIN minutes.

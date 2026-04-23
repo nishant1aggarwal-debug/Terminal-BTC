@@ -25,9 +25,24 @@ log = get_logger(__name__)
 _SUPPORTED = {"bybit", "binance", "kraken"}
 
 # Pairs that Kraken doesn't list in USDT quote (they have USD versions instead).
-# Skipping these on Kraken avoids 16 symbol fetches returning empty data. If the
+# Skipping these on Kraken avoids symbol fetches returning empty data. If the
 # user has DATA_SOURCE=bybit/binance, these are fine and get included.
-_KRAKEN_MISSING_USDT = {"TRX/USDT", "MATIC/USDT", "NEAR/USDT", "APT/USDT"}
+#
+# Verified by smoke-testing fetch_ticker against Kraken's public API. Kraken
+# heavily prefers USD quote for older pairs; newer listings + meme tokens
+# often skip USDT entirely. The tick-level filter still catches anything we
+# missed — this just trims the obvious cases at scan time.
+_KRAKEN_MISSING_USDT = {
+    # Long-established pairs where Kraken only offers USD quote
+    "TRX/USDT", "MATIC/USDT", "NEAR/USDT", "APT/USDT",
+    "TON/USDT", "HBAR/USDT", "ETC/USDT", "BNB/USDT",
+    # Newer / retail / meme pairs Kraken hasn't USDT-quoted (at time of writing)
+    "SEI/USDT", "TIA/USDT", "JUP/USDT", "PYTH/USDT", "JTO/USDT",
+    "PEPE/USDT", "WIF/USDT", "BONK/USDT", "FLOKI/USDT", "ORDI/USDT",
+    "IMX/USDT", "RNDR/USDT", "FET/USDT", "THETA/USDT", "COMP/USDT",
+    "SNX/USDT", "ICP/USDT", "KSM/USDT", "EGLD/USDT", "APE/USDT",
+    "CHZ/USDT", "GALA/USDT", "RUNE/USDT", "GRT/USDT",
+}
 
 
 def filter_supported(symbols: list[str]) -> list[str]:
