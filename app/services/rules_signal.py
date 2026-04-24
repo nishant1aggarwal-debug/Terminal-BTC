@@ -33,6 +33,73 @@ from app.logging_setup import get_logger
 log = get_logger(__name__)
 
 
+def _apply_overrides(decision: "RulesDecision", symbol: str, threshold: float) -> "RulesDecision":
+    """Consult the strategy auditor's active overrides for this symbol and adjust.
+
+    Four override types we honour:
+      * disable_long / disable_short — flip the action to hold.
+      * size_multiplier — scale the size_pct (clamped 0.25..1.75).
+      * confidence_adj — shift the firing threshold up/down for this symbol.
+        A positive value means "tighter" — if the resulting score no longer
+        clears the adjusted threshold, we demote to hold.
+    """
+    # Lazy import avoids auditor→rules_signal circular.
+    from app.services import auditor
+
+    try:
+        overrides = auditor.override_map(symbol)
+    except Exception as exc:
+        log.warning("override_lookup_failed", symbol=symbol, error=str(exc))
+        return decision
+
+    if not overrides:
+        return decision
+
+    notes: list[str] = []
+
+    # Directional disables — flip to hold.
+    if decision.action == "buy" and overrides.get("disable_long", "").lower() == "true":
+        notes.append("override:disable_long")
+        decision.action = "hold"
+        decision.size_pct = 0.0
+    elif decision.action == "sell" and overrides.get("disable_short", "").lower() == "true":
+        notes.append("override:disable_short")
+        decision.action = "hold"
+        decision.size_pct = 0.0
+
+    # Confidence adjustment — tighten or loosen the threshold on this symbol.
+    conf_adj_raw = overrides.get("confidence_adj")
+    if conf_adj_raw:
+        try:
+            conf_adj = max(-0.20, min(0.20, float(conf_adj_raw)))
+        except ValueError:
+            conf_adj = 0.0
+        if decision.action in {"buy", "sell"}:
+            adjusted_threshold = threshold + conf_adj
+            if decision.confidence < adjusted_threshold:
+                notes.append(f"override:conf_adj+{conf_adj:+.2f} demoted (conf {decision.confidence:.2f} < {adjusted_threshold:.2f})")
+                decision.action = "hold"
+                decision.size_pct = 0.0
+            else:
+                notes.append(f"override:conf_adj{conf_adj:+.2f}")
+
+    # Size multiplier — scale the bet.
+    if decision.action in {"buy", "sell"}:
+        mult_raw = overrides.get("size_multiplier")
+        if mult_raw:
+            try:
+                mult = max(0.25, min(1.75, float(mult_raw)))
+            except ValueError:
+                mult = 1.0
+            if mult != 1.0:
+                decision.size_pct = round(decision.size_pct * mult, 4)
+                notes.append(f"override:size×{mult}")
+
+    if notes:
+        decision.reasoning = f"{decision.reasoning} | {' · '.join(notes)}"
+    return decision
+
+
 @dataclass
 class RulesDecision:
     action: str  # "buy" | "sell" | "hold"
@@ -157,35 +224,61 @@ def generate_decision(
     if bb_s: contribs.append(f"BB {bb_s:+.2f}")
     reason_tail = f"score={score:+.2f} [{' · '.join(contribs) or 'flat'}] ADX={adx:.0f}"
 
+    threshold = settings.min_signal_confidence
+    symbol = str(snapshot.get("symbol", ""))
+
     # Exit on flipped regime while holding a position.
     if pos_qty > 0 and score < -0.20:
-        return RulesDecision(
+        d = RulesDecision(
             action="sell", size_pct=0.05,
             stop_loss=price + 1.5 * atr, take_profit=price - 2.5 * atr,
             confidence=conf, reasoning=f"exit long: {reason_tail}",
         )
+        return _apply_overrides(d, symbol, threshold)
     if pos_qty < 0 and score > 0.20:
-        return RulesDecision(
+        d = RulesDecision(
             action="buy", size_pct=0.05,
             stop_loss=price - 1.5 * atr, take_profit=price + 2.5 * atr,
             confidence=conf, reasoning=f"exit short: {reason_tail}",
         )
+        return _apply_overrides(d, symbol, threshold)
+
+    # Higher-timeframe confirmation. If the scheduler fetched the 1h snapshot
+    # and it disagrees with the 15m direction, we refuse the entry. This is
+    # the single biggest filter against whipsaws — only trade WITH the higher
+    # trend. (If HTF fields are absent — e.g. fetch failed — we fall back to
+    # 15m-only, not block everything.)
+    htf_up = snapshot.get("htf_trend_up")
+    htf_down = snapshot.get("htf_trend_down")
 
     # Fresh entries only from flat, and only when score crosses the bar.
     if abs(pos_qty) < 1e-9:
-        threshold = settings.min_signal_confidence
         if score >= threshold:
-            return RulesDecision(
+            if htf_down is True:
+                return RulesDecision(
+                    action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
+                    confidence=conf,
+                    reasoning=f"hold: 15m long but 1h trend down — no HTF confirmation ({reason_tail})",
+                )
+            d = RulesDecision(
                 action="buy", size_pct=0.05,
                 stop_loss=price - 1.5 * atr, take_profit=price + 2.5 * atr,
                 confidence=conf, reasoning=f"long: {reason_tail}",
             )
+            return _apply_overrides(d, symbol, threshold)
         if score <= -threshold:
-            return RulesDecision(
+            if htf_up is True:
+                return RulesDecision(
+                    action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
+                    confidence=conf,
+                    reasoning=f"hold: 15m short but 1h trend up — no HTF confirmation ({reason_tail})",
+                )
+            d = RulesDecision(
                 action="sell", size_pct=0.05,
                 stop_loss=price + 1.5 * atr, take_profit=price - 2.5 * atr,
                 confidence=conf, reasoning=f"short: {reason_tail}",
             )
+            return _apply_overrides(d, symbol, threshold)
 
     return RulesDecision(
         action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,

@@ -16,6 +16,7 @@ from sqlmodel import desc, select
 from app.config import get_settings
 from app.db import get_session
 from app.exchange import data_source
+from app.services import auditor as auditor_svc
 from app.services import backtest as backtest_svc
 from app.services import notifications as notifications_svc
 from app.services import scheduler as scheduler_svc
@@ -121,11 +122,12 @@ async def overview() -> dict[str, Any]:
         "scheduler": scheduler_svc.heartbeat(),
         "backtest": backtest_svc.state(),
         "notifications_unread": notifications_svc.unread_count(),
+        "active_overrides": len(auditor_svc.active_overrides()),
     }
 
 
 _MARKETS_CACHE: dict[str, Any] = {"ts": 0.0, "data": []}
-_MARKETS_TTL_SEC = 20
+_MARKETS_TTL_SEC = 5  # live prices — 5s cache so the UI feels real-time
 
 
 @router.get("/markets")
@@ -222,6 +224,18 @@ async def notifications_list(
         "unread": notifications_svc.unread_count(),
         "items": notifications_svc.list_recent(limit=limit, unread_only=unread_only),
     }
+
+
+@router.get("/overrides")
+async def overrides_list(symbol: str | None = None) -> dict[str, Any]:
+    """Currently-active StrategyOverride rows (not-yet-expired)."""
+    rows = auditor_svc.active_overrides(symbol=symbol)
+    return {"count": len(rows), "items": rows}
+
+
+@router.get("/audits")
+async def audits_list(limit: int = Query(20, ge=1, le=100)) -> list[dict[str, Any]]:
+    return auditor_svc.recent_audits(limit=limit)
 
 
 @router.get("/positions")

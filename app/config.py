@@ -121,6 +121,33 @@ class Settings(BaseSettings):
     backtest_hour_utc: int = 3           # nightly job fires at this UTC hour
     backtest_timeframe: str = ""         # empty = use trade_timeframe
 
+    # Strategy auditor (the self-improving loop). Runs nightly, reads recent
+    # closed trades + backtest + macro state, and writes per-symbol
+    # StrategyOverride rows ("disable_long", "size_multiplier", etc.). The
+    # rules engine applies active overrides on every tick, so the system
+    # learns from its own results without human input.
+    auditor_hour_utc: int = 4                  # cron hour (after backtest at 03:00)
+    auditor_window_trades: int = 50            # inspect last N closed trades per symbol
+    auditor_max_overrides_per_run: int = 12    # safety cap so a bad run can't flood
+    auditor_override_hours: int = 24           # how long each override stays active
+    # Rule-based thresholds (local auditor, no Claude needed):
+    auditor_loss_win_rate_pct: float = 30.0    # < this → tighten (disable or shrink)
+    auditor_win_win_rate_pct: float = 65.0     # > this → loosen (boost size)
+    auditor_min_trades: int = 5                # need at least N trades to act
+    # Claude augmentation (optional). When ANTHROPIC_API_KEY is set, the
+    # auditor also asks Claude for suggestions beyond the local rules.
+    auditor_use_claude: bool = True            # honoured only if key is present
+
+    # Multi-timeframe confirmation. Signal fires only when the 1h trend agrees
+    # with the 15m setup — dramatically cuts bad entries in whipsawing markets.
+    htf_confirmation: bool = True
+    htf_timeframe: str = "1h"
+
+    # Sector cluster cap: limits how many concurrent positions can sit in the
+    # same high-correlation bucket. Prevents one BTC dump from taking out 6
+    # correlated alts at once.
+    max_positions_per_sector: int = 3
+
     # Infra
     database_url: str = "sqlite:///data/terminal_btc.db"
     log_level: str = "INFO"

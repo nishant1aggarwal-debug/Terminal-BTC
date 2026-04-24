@@ -1,6 +1,7 @@
 // Terminal-BTC dashboard — vanilla JS, polls /api/* endpoints.
 
-const REFRESH_MS = 10_000;
+const REFRESH_MS = 10_000;        // full-dashboard poll
+const MARKETS_REFRESH_MS = 3_000;  // live prices — fast loop
 
 // TradingView widget — Bybit is the default data source. Their widget symbol
 // format is e.g. BYBIT:BTCUSDT (no slash). We fall back to the same symbol on
@@ -610,9 +611,56 @@ async function markAllAlertsRead() {
   } catch (e) { alert("failed: " + e.message); }
 }
 
+function renderOverrides(data) {
+  const host = document.getElementById("overrides-list");
+  const badge = document.getElementById("overrides-count");
+  const items = data.items || [];
+  if (items.length > 0) {
+    badge.style.display = "inline-block";
+    badge.textContent = items.length;
+  } else {
+    badge.style.display = "none";
+  }
+  if (!items.length) {
+    host.innerHTML = `<div class="muted" style="padding:14px;">no active overrides yet — auditor runs nightly at 04:00 UTC (or click Run audit).</div>`;
+    return;
+  }
+  host.innerHTML = items.slice(0, 15).map(o => {
+    const exp = relTime(o.expires_at);
+    return `
+      <div class="override-row">
+        <div class="override-sym">${escapeHtml(o.symbol)}</div>
+        <span class="override-param">${escapeHtml(o.param_key)}=${escapeHtml(o.param_value)}</span>
+        <div class="override-reason">${escapeHtml(o.reason)}</div>
+        <div class="override-exp">${o.source}<br/>exp ${exp}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+async function runAudit() {
+  const btn = document.getElementById("btn-audit");
+  btn.disabled = true; btn.textContent = "Auditing…";
+  try {
+    await fetchJSON("/control/audit-now", { method: "POST" });
+  } catch (e) { alert("audit failed: " + e.message); }
+  finally {
+    setTimeout(() => { btn.disabled = false; btn.textContent = "Run audit"; refreshAll(); }, 4000);
+  }
+}
+
+// Fast standalone loop JUST for live prices — keeps the numbers ticking
+// every 3s without re-running the full 10-endpoint refresh.
+async function fastMarketsRefresh() {
+  try {
+    const markets = await fetchJSON("/api/markets");
+    renderMarkets(markets);
+  } catch (e) { /* silent — main refresh will surface errors */ }
+}
+
 async function refreshAll() {
   try {
-    const [overview, positions, trades, decisions, equity, stats, signals, backtest, markets, alerts] = await Promise.all([
+    const [overview, positions, trades, decisions, equity, stats, signals, backtest, markets, alerts, overrides] = await Promise.all([
       fetchJSON("/api/overview"),
       fetchJSON("/api/positions"),
       fetchJSON("/api/trades?limit=50"),
@@ -623,6 +671,7 @@ async function refreshAll() {
       fetchJSON("/api/backtest"),
       fetchJSON("/api/markets"),
       fetchJSON("/api/notifications?limit=50"),
+      fetchJSON("/api/overrides"),
     ]);
     window._tvSource = (overview.data_source || "bybit").toUpperCase();
     renderStatusFlags(overview);
@@ -638,6 +687,7 @@ async function refreshAll() {
     renderSignals(signals);
     renderBacktest(backtest);
     renderAlerts(alerts);
+    renderOverrides(overrides);
 
     // Sync Run-backtest button label with real backtest state.
     const btBtn = document.getElementById("btn-backtest");
@@ -728,6 +778,7 @@ async function toggleKill(enabled) {
 document.getElementById("btn-tick").addEventListener("click", runTick);
 document.getElementById("btn-refresh").addEventListener("click", refreshAll);
 document.getElementById("btn-backtest").addEventListener("click", runBacktest);
+document.getElementById("btn-audit").addEventListener("click", runAudit);
 document.getElementById("btn-macro").addEventListener("click", refreshMacro);
 document.getElementById("btn-kill").addEventListener("click", () => toggleKill(true));
 document.getElementById("btn-resume").addEventListener("click", () => toggleKill(false));
@@ -747,3 +798,5 @@ mountTradingView(_tvSymbol, _tvInterval, "BYBIT");
 
 refreshAll();
 setInterval(refreshAll, REFRESH_MS);
+// Fast live-price loop — keeps the Market cards ticking every 3s.
+setInterval(fastMarketsRefresh, MARKETS_REFRESH_MS);

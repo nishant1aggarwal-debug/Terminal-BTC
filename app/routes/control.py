@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 import asyncio
 
-from app.services import backtest, macro, notifications, risk
+from app.services import auditor, backtest, macro, notifications, risk
 from app.services.scheduler import tick
 
 router = APIRouter(prefix="/control", tags=["control"])
@@ -54,6 +54,21 @@ async def macro_refresh() -> dict[str, Any]:
 async def mark_read() -> dict[str, Any]:
     count = notifications.mark_all_read()
     return {"ok": True, "marked_read": count}
+
+
+@router.post("/audit-now")
+async def audit_now() -> dict[str, Any]:
+    """Run the strategy auditor in the background. Returns immediately so the
+    dashboard isn't blocked on Claude round-trip time.
+    """
+    async def _runner():
+        try:
+            await asyncio.to_thread(auditor.run_audit)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception("auditor_background_failed: %s", exc)
+    asyncio.create_task(_runner())
+    return {"ok": True, "message": "audit started in background"}
 
 
 @router.post("/backtest-now")

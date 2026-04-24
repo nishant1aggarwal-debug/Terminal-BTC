@@ -158,3 +158,44 @@ class BacktestReport(SQLModel, table=True):
     params_json: str = "{}"  # the strategy params used (for future A/B)
     period_start: Optional[datetime] = None
     period_end: Optional[datetime] = None
+
+
+class StrategyOverride(SQLModel, table=True):
+    """Per-symbol strategy tweak the auditor writes after reviewing outcomes.
+
+    The rules engine reads any active (non-expired) override for a symbol
+    on every tick and applies it BEFORE composing its score. Overrides are
+    the learning loop — the system's way of saying "last week I lost money
+    shorting ADA in low-ADX regimes, so skip it for 24h".
+
+    Valid param_key values:
+      * ``disable_long``   ("true"/"false") — refuse long entries for this symbol
+      * ``disable_short``  ("true"/"false") — refuse short entries
+      * ``size_multiplier`` (float 0.25..1.75) — scale position size
+      * ``confidence_adj`` (float ±0.20) — shift the threshold: +0.1 makes
+                                            the engine MORE selective on this
+                                            symbol; -0.1 makes it looser
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    symbol: str = Field(index=True)
+    param_key: str = Field(index=True)
+    param_value: str
+    reason: str = ""
+    created_at: datetime = Field(default_factory=_utcnow, index=True)
+    expires_at: datetime = Field(index=True)
+    source: str = "local"  # "local" (rule-based) | "claude" | "manual"
+    audit_id: Optional[int] = Field(default=None, foreign_key="auditreport.id")
+    applied_count: int = 0
+
+
+class AuditReport(SQLModel, table=True):
+    """One row per audit run — whether local or Claude-assisted."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    generated_at: datetime = Field(default_factory=_utcnow, index=True)
+    source: str = "local"  # "local" | "claude"
+    window_trades: int = 0
+    summary: str = ""
+    overrides_proposed: int = 0
+    overrides_stored: int = 0
+    claude_usd_cost: float = 0.0
+    raw_json: Optional[str] = None

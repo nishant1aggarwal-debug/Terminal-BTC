@@ -11,7 +11,7 @@ from app.db import get_session
 from app.exchange import data_source
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import backtest, executor, funding, macro, notifications, signal, targets
+from app.services import auditor, backtest, executor, funding, macro, notifications, signal, targets
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -64,6 +64,27 @@ async def _tick_symbol(
         log.error("snapshot_failed", symbol=symbol, error=str(exc))
         return {"symbol": symbol, "status": "skipped", "reason": f"snapshot: {exc}"}
 
+    # Higher-timeframe confirmation — cuts whipsaw entries. 15m signals only
+    # fire when 1h (or whatever HTF_TIMEFRAME is) agrees on direction.
+    settings = get_settings()
+    snap_dict = snap.to_dict()
+    if settings.htf_confirmation:
+        try:
+            htf_snap = await asyncio.to_thread(
+                get_snapshot, symbol, settings.htf_timeframe,
+            )
+            snap_dict["htf_trend_up"] = (
+                htf_snap.ema_20 > htf_snap.ema_50 and htf_snap.macd_hist > 0
+            )
+            snap_dict["htf_trend_down"] = (
+                htf_snap.ema_20 < htf_snap.ema_50 and htf_snap.macd_hist < 0
+            )
+            snap_dict["htf_timeframe"] = settings.htf_timeframe
+        except Exception as exc:
+            log.warning("htf_snapshot_failed", symbol=symbol, error=str(exc))
+            snap_dict["htf_trend_up"] = None
+            snap_dict["htf_trend_down"] = None
+
     # STEP 1 — target monitor runs BEFORE signal generation. If the latest bar
     # crossed SL/TP1/TP2/trailing for an open position, exit the appropriate
     # tranche first. This way the signal engine sees the post-exit state (flat
@@ -76,7 +97,7 @@ async def _tick_symbol(
     position = _current_position(symbol)
 
     try:
-        decision = await asyncio.to_thread(signal.generate, snap.to_dict(), tv_alert, position)
+        decision = await asyncio.to_thread(signal.generate, snap_dict, tv_alert, position)
     except Exception as exc:
         log.error("signal_generation_failed", symbol=symbol, error=str(exc))
         return {"symbol": symbol, "status": "skipped", "reason": f"signal_error: {exc}"}
@@ -105,7 +126,7 @@ async def _tick_symbol(
             source=source,
             symbol=symbol,
             timeframe=tf,
-            snapshot_json=json.dumps(snap.to_dict(), default=str),
+            snapshot_json=json.dumps(snap_dict, default=str),
             action=decision.action,
             size_pct=decision.size_pct,
             stop_loss=decision.stop_loss,
@@ -218,6 +239,11 @@ async def _backtest_job() -> None:
     await asyncio.to_thread(backtest.run_all)
 
 
+async def _auditor_job() -> None:
+    """Self-improving loop: review recent trades + backtests, write overrides."""
+    await asyncio.to_thread(auditor.run_audit)
+
+
 def start() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -235,6 +261,11 @@ def start() -> None:
     sched.add_job(
         _backtest_job, "cron", hour=settings.backtest_hour_utc, minute=0,
         id="backtest", max_instances=1,
+    )
+    # Nightly auditor — runs after the backtest so it has fresh numbers.
+    sched.add_job(
+        _auditor_job, "cron", hour=settings.auditor_hour_utc, minute=0,
+        id="auditor", max_instances=1,
     )
     sched.start()
     # Warm the F&G cache on startup so the first ticks see it.

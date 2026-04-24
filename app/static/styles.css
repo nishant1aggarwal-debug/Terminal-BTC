@@ -281,6 +281,18 @@ main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
   padding: 1px 7px; border-radius: 10px; vertical-align: middle;
 }
 
+.overrides-list { display: flex; flex-direction: column; gap: 6px; }
+.override-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 8px; background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+}
+.override-sym { font-weight: 600; font-size: 13px; min-width: 100px; }
+.override-param { font-family: monospace; font-size: 11px; padding: 2px 6px;
+  background: var(--panel); border-radius: 3px; color: var(--amber); }
+.override-reason { flex: 1; font-size: 12px; color: var(--muted); }
+.override-exp { font-size: 10px; color: var(--muted); min-width: 50px; text-align: right; }
+
 @media (max-width: 640px) {
   .markets-grid { grid-template-columns: repeat(2, 1fr); }
   .heartbeat-bar { padding: 8px 12px; font-size: 11px; }
