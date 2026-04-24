@@ -294,8 +294,39 @@ main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
 .override-exp { font-size: 10px; color: var(--muted); min-width: 50px; text-align: right; }
 
 @media (max-width: 640px) {
-  .markets-grid { grid-template-columns: repeat(2, 1fr); }
-  .heartbeat-bar { padding: 8px 12px; font-size: 11px; }
+  main { padding: 12px 10px; }
+  .markets-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .heartbeat-bar { padding: 6px 10px; font-size: 10px; gap: 6px; }
+  .topbar { padding: 10px 12px; }
+  .brand h1 { font-size: 16px; }
+  .status-group { gap: 4px; }
+  .pill { padding: 3px 8px; font-size: 10px; }
+  .actions { flex-wrap: wrap; gap: 6px; }
+  .btn { padding: 8px 12px; font-size: 12px; min-height: 36px; }
+  .btn.primary { min-height: 44px; }
+  .kpi { padding: 10px 12px; }
+  .kpi-value { font-size: 18px; }
+  /* Let horizontal tables scroll rather than truncate */
+  .panel { overflow-x: auto; }
+  .data-table { min-width: 520px; }
+  .section-head h2 { font-size: 14px; }
+  /* TradingView chart shrinks but stays usable */
+  #tv-chart { height: 400px !important; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .stat-value { font-size: 16px; }
+  .signals-grid { grid-template-columns: 1fr; }
+  .alert-row { flex-wrap: wrap; padding: 8px 10px; }
+  .alert-kind { min-width: 48px; font-size: 9px; }
+  .alert-title { font-size: 12px; }
+  .alert-msg { font-size: 10px; }
+  /* Hide the lower-priority chips on very narrow phones */
+  .chips .chip:nth-child(n+4) { display: none; }
+  .market-price { font-size: 15px; }
+}
+
+@media (max-width: 380px) {
+  .kpi-row { grid-template-columns: 1fr; }
+  .markets-grid { grid-template-columns: 1fr; }
 }
 
 footer {

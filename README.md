@@ -10,6 +10,19 @@ Paper-trading bot for BTC, ETH, SOL, XRP, and other high-volume USDT pairs again
 - **Risk gates**: per-trade cap, daily loss cap, max concurrent positions, symbol allowlist, DB-backed kill switch, idempotent `clientOrderId`.
 - **TradingView** is optional — free TV tier has no webhooks; the scheduler polls every `POLL_INTERVAL_SEC` and sweeps all symbols in turn. If you later upgrade, the `/tv/webhook` route is wired.
 
+## Persistent storage — do this first or your trade history keeps wiping
+
+Render's free tier runs containers on ephemeral filesystems. Every redeploy wipes the SQLite DB, which means **signals fire and trades open, but the next deploy resets your win-rate, P&L, and alert history to zero**. Fix it once with **Neon.tech's free Postgres** (3 GB storage, always-on, no trial clock):
+
+1. Create a free account at **https://neon.tech** — no card required.
+2. Create a project called `terminal-btc`. Copy the `postgresql://...` connection string they show you.
+3. In that string, change `postgresql://` to `postgresql+psycopg://` so SQLAlchemy uses the psycopg driver.
+4. In Render → your `terminal-btc` web service → **Environment** → update `DATABASE_URL` to the new value → **Save, rebuild, and deploy**.
+
+On first boot the app creates all tables in Postgres. After that, redeploys no longer touch your data — every ClosedTrade, Notification, StrategyOverride, and BacktestReport persists.
+
+**Local dev** still uses SQLite by default. Set `DATABASE_URL=postgresql+psycopg://user:pw@localhost/terminal_btc` locally if you want to match prod.
+
 ## Get a clickable dashboard URL (no coding, ~3 minutes)
 
 **One-click deploy — click the button below:**

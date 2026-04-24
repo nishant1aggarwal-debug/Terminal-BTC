@@ -521,6 +521,12 @@ async def backtest_latest() -> dict[str, Any]:
                 "net_pnl_pct": r.net_pnl_pct,
                 "max_drawdown_pct": r.max_drawdown_pct,
                 "avg_hold_minutes": r.avg_hold_minutes,
+                "is_win_rate_pct": r.is_win_rate_pct,
+                "is_profit_factor": r.is_profit_factor,
+                "oos_trades": r.oos_trades,
+                "oos_win_rate_pct": r.oos_win_rate_pct,
+                "oos_profit_factor": r.oos_profit_factor,
+                "oos_net_pnl_pct": r.oos_net_pnl_pct,
                 "period_start": r.period_start.isoformat() if r.period_start else None,
                 "period_end": r.period_end.isoformat() if r.period_end else None,
             }

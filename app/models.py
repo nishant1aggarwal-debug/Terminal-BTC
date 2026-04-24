@@ -141,7 +141,13 @@ class MacroIndicator(SQLModel, table=True):
 
 
 class BacktestReport(SQLModel, table=True):
-    """Result of replaying the rules engine over historical candles for one symbol."""
+    """Result of replaying the rules engine over historical candles for one symbol.
+
+    Includes both in-sample (full window) and out-of-sample (walk-forward)
+    metrics so users can spot curve-fitted strategies. A healthy signal has
+    IS and OOS within ~20 percentage points; a big gap means the strategy
+    over-fits recent data.
+    """
     id: Optional[int] = Field(default=None, primary_key=True)
     symbol: str = Field(index=True)
     timeframe: str
@@ -155,6 +161,14 @@ class BacktestReport(SQLModel, table=True):
     net_pnl_pct: float = 0.0
     max_drawdown_pct: float = 0.0
     avg_hold_minutes: float = 0.0
+    # Walk-forward out-of-sample metrics (3 rolling 60/40 train/test windows).
+    # NULL until at least one walk-forward run completes.
+    is_win_rate_pct: Optional[float] = None
+    is_profit_factor: Optional[float] = None
+    oos_trades: Optional[int] = None
+    oos_win_rate_pct: Optional[float] = None
+    oos_profit_factor: Optional[float] = None
+    oos_net_pnl_pct: Optional[float] = None
     params_json: str = "{}"  # the strategy params used (for future A/B)
     period_start: Optional[datetime] = None
     period_end: Optional[datetime] = None

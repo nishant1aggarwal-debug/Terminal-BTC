@@ -25,6 +25,11 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
 ]
+# Installs the Postgres driver. Use when DATABASE_URL points to Postgres
+# (Neon.tech free tier is recommended — see README).
+postgres = [
+    "psycopg[binary]>=3.2",
+]
 
 [build-system]
 requires = ["setuptools>=68"]

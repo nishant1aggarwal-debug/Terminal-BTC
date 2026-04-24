@@ -489,20 +489,37 @@ function renderBacktest(bt) {
 
   const tbody = document.querySelector("#backtest-table tbody");
   if (!bt.reports.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="muted">no backtests yet — click <em>Run backtest</em></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="muted">no backtests yet — click <em>Run backtest</em></td></tr>`;
     return;
   }
-  tbody.innerHTML = bt.reports.map(r => `
-    <tr>
-      <td><strong>${r.symbol}</strong></td>
-      <td class="num">${r.trades}</td>
-      <td class="num">${r.trades ? r.win_rate_pct.toFixed(1) + "%" : "—"}</td>
-      <td class="num">${r.profit_factor !== null && r.profit_factor !== undefined ? r.profit_factor.toFixed(2) : "—"}</td>
-      <td class="num ${classPN(r.net_pnl_pct)}">${fmtSignedPct(r.net_pnl_pct)}</td>
-      <td class="num neg">${r.max_drawdown_pct.toFixed(2)}%</td>
-      <td class="num">${r.avg_hold_minutes.toFixed(0)}m</td>
-    </tr>
-  `).join("");
+  tbody.innerHTML = bt.reports.map(r => {
+    const isWR = r.is_win_rate_pct ?? r.win_rate_pct;
+    const oosWR = r.oos_win_rate_pct;
+    const isPF = r.is_profit_factor ?? r.profit_factor;
+    const oosPF = r.oos_profit_factor;
+    // "Honest?" flag: green if IS-OOS gap < 15pp, amber if 15-30, red if > 30.
+    let honest = "—";
+    let honestCls = "muted";
+    if (oosWR !== null && oosWR !== undefined && isWR != null) {
+      const gap = Math.abs(isWR - oosWR);
+      if (gap < 15) { honest = "✓ real"; honestCls = "pos"; }
+      else if (gap < 30) { honest = "⚠ maybe"; honestCls = "warn"; }
+      else { honest = "✗ overfit"; honestCls = "neg"; }
+    }
+    return `
+      <tr>
+        <td><strong>${r.symbol}</strong></td>
+        <td class="num">${r.trades}</td>
+        <td class="num">${r.trades ? isWR.toFixed(1) + "%" : "—"}</td>
+        <td class="num">${isPF !== null && isPF !== undefined ? isPF.toFixed(2) : "—"}</td>
+        <td class="num">${r.oos_trades ?? "—"}</td>
+        <td class="num">${oosWR !== null && oosWR !== undefined ? oosWR.toFixed(1) + "%" : "—"}</td>
+        <td class="num">${oosPF !== null && oosPF !== undefined ? oosPF.toFixed(2) : "—"}</td>
+        <td class="num ${classPN(r.oos_net_pnl_pct || 0)}">${r.oos_net_pnl_pct !== null ? fmtSignedPct(r.oos_net_pnl_pct) : "—"}</td>
+        <td class="num ${honestCls}">${honest}</td>
+      </tr>
+    `;
+  }).join("");
 }
 
 const fmtSignedPct = (n) => {

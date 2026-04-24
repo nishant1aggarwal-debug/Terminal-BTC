@@ -10,7 +10,9 @@ COPY pyproject.toml README.md ./
 COPY app ./app
 COPY scripts ./scripts
 
-RUN pip install --no-cache-dir -e .
+# Install app + Postgres driver so a DATABASE_URL like
+# postgresql+psycopg://... works without rebuilding.
+RUN pip install --no-cache-dir -e ".[postgres]"
 
 RUN mkdir -p /app/data
 ENV DATABASE_URL=sqlite:////app/data/terminal_btc.db
