@@ -82,12 +82,23 @@ def generate(
     # Smart position sizing: base 3% of equity, scaled UP by confidence above
     # threshold and by ADX strength. High-conviction + strong-trend setups bet
     # bigger; weak setups that barely clear the threshold bet tiny. Cap at 6%.
+    # Drawdown circuit breaker: if paper equity is too far below peak,
+    # multiply the sized fraction by dd_size_mult (default 0.5) until recovered.
     if rd.action in {"buy", "sell"}:
         settings = get_settings()
         conf_boost = 1.0 + max(0.0, rd.confidence - settings.min_signal_confidence) * 2.0
         adx = float(snapshot.get("adx_14", 20.0))
         adx_boost = min(1.5, 1.0 + max(0.0, adx - 20.0) * 0.02)
         sized = 0.03 * conf_boost * adx_boost
+
+        from app.services import risk
+        dd = risk.drawdown_state()
+        if dd["multiplier_active"]:
+            sized *= dd["multiplier"]
+            rd.reasoning = (
+                f"{rd.reasoning} | DD {dd['dd_pct'] * 100:.1f}% · size ×{dd['multiplier']}"
+            )
+
         rd.size_pct = min(0.06, round(sized, 4))
         rd.reasoning = f"{rd.reasoning} | size {rd.size_pct * 100:.2f}%"
 

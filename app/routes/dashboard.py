@@ -19,6 +19,7 @@ from app.exchange import data_source
 from app.services import auditor as auditor_svc
 from app.services import backtest as backtest_svc
 from app.services import notifications as notifications_svc
+from app.services import risk as risk_svc
 from app.services import scheduler as scheduler_svc
 from app.models import (
     BacktestReport,
@@ -123,6 +124,7 @@ async def overview() -> dict[str, Any]:
         "backtest": backtest_svc.state(),
         "notifications_unread": notifications_svc.unread_count(),
         "active_overrides": len(auditor_svc.active_overrides()),
+        "drawdown": risk_svc.drawdown_state(),
     }
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.db import init_db
 from app.logging_setup import configure_logging, get_logger
 from app.routes import control, dashboard, health, webhook
+from app.security import require_basic_auth
 from app.services import scheduler
 
 configure_logging()
@@ -38,15 +39,41 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Terminal-BTC", version="0.1.0", lifespan=lifespan)
+# Health stays public so Render / Kubernetes probes work without credentials.
 app.include_router(health.router)
-app.include_router(control.router)
-app.include_router(webhook.router)
-app.include_router(dashboard.router)
+# Every other surface is protected by basic auth when env is configured.
+# Open mode (both env vars empty) = no-op dependency, zero overhead.
+_auth = [Depends(require_basic_auth)]
+app.include_router(control.router, dependencies=_auth)
+app.include_router(webhook.router)  # webhook has its own shared-secret; don't double-gate
+app.include_router(dashboard.router, dependencies=_auth)
 
 _static_dir = Path(__file__).parent / "static"
 app.mount("/ui", StaticFiles(directory=_static_dir, html=True), name="ui")
 
 
-@app.get("/", include_in_schema=False)
+@app.middleware("http")
+async def _ui_basic_auth(request, call_next):
+    """StaticFiles mount bypasses router dependencies, so protect it here.
+
+    Only the /ui path needs manual gating — everything else runs through the
+    router-level dependency. Health and the TV webhook stay open.
+    """
+    if request.url.path.startswith("/ui"):
+        try:
+            await require_basic_auth(request)
+        except Exception as exc:
+            from fastapi.responses import Response
+            return Response(
+                content=str(exc.detail if hasattr(exc, "detail") else "unauthorized"),
+                status_code=exc.status_code if hasattr(exc, "status_code") else 401,
+                headers=exc.headers if hasattr(exc, "headers") else {
+                    "WWW-Authenticate": 'Basic realm="terminal-btc"',
+                },
+            )
+    return await call_next(request)
+
+
+@app.get("/", include_in_schema=False, dependencies=_auth)
 async def _root() -> RedirectResponse:
     return RedirectResponse(url="/ui/")

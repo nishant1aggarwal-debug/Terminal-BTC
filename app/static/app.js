@@ -96,6 +96,23 @@ function renderHeartbeat(ov) {
   } else {
     sumEl.textContent = "awaiting first tick — click Run tick now";
   }
+
+  // Drawdown circuit breaker pill
+  const ddEl = document.getElementById("hb-drawdown");
+  const dd = ov.drawdown;
+  if (dd && dd.peak_equity_usdt > 0) {
+    const ddPct = (dd.dd_pct * 100).toFixed(1);
+    if (dd.multiplier_active) {
+      ddEl.textContent = `DD ${ddPct}% · size ×${dd.multiplier}`;
+      ddEl.className = "hb-pill stale";
+    } else {
+      ddEl.textContent = `DD ${ddPct}% · size ×1.0`;
+      ddEl.className = dd.dd_pct > 0.05 ? "hb-pill stale" : "hb-pill alive";
+    }
+  } else {
+    ddEl.textContent = "DD —";
+    ddEl.className = "hb-pill muted";
+  }
 }
 
 function renderMarkets(rows) {

@@ -64,20 +64,50 @@ def set_targets_on_open(
 
 
 def _update_trailing(pos: Position, price: float) -> tuple[float | None, bool]:
-    """Ratchet the trailing stop once TP1 has hit. Returns (trailing_stop, triggered)."""
+    """Chandelier Exit trailing stop — ATR-based, 22-period by default.
+
+    Long:  trailing = max(highest_high_last_N, high_water) − K × ATR
+    Short: trailing = min(lowest_low_last_N, low_water) + K × ATR
+    Trailing only arms after TP1 hits (position has taken profit on half).
+    Never moves the stop backward (long: stop only ratchets up; short: only down).
+    """
     if not pos.tp1_hit or pos.trailing_high_water is None:
         return None, False
-    entry = pos.avg_entry
+
+    from app.config import get_settings
+    from app.services.market_data import get_recent_extremes
+
+    settings = get_settings()
+    extremes = get_recent_extremes(
+        pos.symbol,
+        timeframe=settings.trade_timeframe,
+        period=settings.chandelier_period,
+    )
+    if extremes is None or extremes["atr"] <= 0:
+        # Fall back to a breakeven-locked stop if we can't fetch extremes.
+        entry = pos.avg_entry
+        if pos.qty > 0:
+            trailing_stop = max(entry, pos.trailing_high_water - 2 * entry * 0.005)
+            triggered = price <= trailing_stop
+        else:
+            trailing_stop = min(entry, pos.trailing_high_water + 2 * entry * 0.005)
+            triggered = price >= trailing_stop
+        return trailing_stop, triggered
+
+    atr_dist = settings.chandelier_mult * extremes["atr"]
+
     if pos.qty > 0:  # long
-        water = max(pos.trailing_high_water, price)
-        pos.trailing_high_water = water
-        # Trail 50% of the favorable move. Never below breakeven.
-        trailing_stop = max(entry, entry + 0.5 * (water - entry))
+        high_water = max(pos.trailing_high_water, extremes["high"], price)
+        pos.trailing_high_water = high_water
+        raw_stop = high_water - atr_dist
+        # Ratchet: stop can only move up, never down.
+        trailing_stop = max(raw_stop, pos.avg_entry)  # never below breakeven
         triggered = price <= trailing_stop
     else:  # short
-        water = min(pos.trailing_high_water, price)
-        pos.trailing_high_water = water
-        trailing_stop = min(entry, entry - 0.5 * (entry - water))
+        low_water = min(pos.trailing_high_water, extremes["low"], price)
+        pos.trailing_high_water = low_water
+        raw_stop = low_water + atr_dist
+        trailing_stop = min(raw_stop, pos.avg_entry)  # never above breakeven
         triggered = price >= trailing_stop
     return trailing_stop, triggered
 

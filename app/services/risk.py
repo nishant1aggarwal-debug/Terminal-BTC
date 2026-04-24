@@ -103,6 +103,74 @@ def _sector_counts() -> dict[str, int]:
     return counts
 
 
+def _peak_equity(current: float) -> float:
+    """Ratchet-up peak equity persisted as a MacroIndicator row."""
+    from datetime import datetime, timezone
+    from app.models import MacroIndicator
+    with get_session() as s:
+        row = s.get(MacroIndicator, "peak_equity")
+        peak = row.value if row is not None else 0.0
+        if current > peak:
+            peak = current
+            if row is None:
+                row = MacroIndicator(name="peak_equity", value=peak, source="internal",
+                                     classification="tracked")
+            else:
+                row.value = peak
+                row.fetched_at = datetime.now(timezone.utc)
+            s.add(row)
+            s.commit()
+    return peak
+
+
+def drawdown_state() -> dict[str, float | bool]:
+    """Returns {peak, current, dd_pct, multiplier_active, multiplier}.
+
+    Applied by signal.py to downsize every new trade when we're in drawdown.
+    Hysteresis: triggers at ``dd_trigger_pct`` below peak, releases at
+    ``dd_release_pct`` below peak — so we don't flap on small bounces.
+    """
+    # Lazy import to avoid executor ↔ risk circular at import time.
+    from app.services import executor
+    settings = get_settings()
+    try:
+        current = executor._paper_equity_usdt()
+    except Exception:
+        current = settings.paper_starting_equity_usdt
+    peak = _peak_equity(current)
+    dd_pct = ((peak - current) / peak) if peak > 0 else 0.0
+
+    # Hysteresis: once triggered, stay active until we recover above release line.
+    # Use the presence of a MacroIndicator row as the active flag.
+    from app.models import MacroIndicator
+    with get_session() as s:
+        flag = s.get(MacroIndicator, "dd_active")
+        was_active = flag is not None and flag.value > 0
+    if not was_active and dd_pct >= settings.dd_trigger_pct:
+        with get_session() as s:
+            row = MacroIndicator(name="dd_active", value=1.0, source="internal",
+                                 classification="triggered")
+            s.add(row)
+            s.commit()
+        was_active = True
+    elif was_active and dd_pct <= settings.dd_release_pct:
+        with get_session() as s:
+            row = s.get(MacroIndicator, "dd_active")
+            if row is not None:
+                s.delete(row)
+                s.commit()
+        was_active = False
+
+    multiplier = settings.dd_size_mult if was_active else 1.0
+    return {
+        "peak_equity_usdt": peak,
+        "current_equity_usdt": current,
+        "dd_pct": dd_pct,
+        "multiplier_active": was_active,
+        "multiplier": multiplier,
+    }
+
+
 def _today_realized_loss_usdt() -> float:
     with get_session() as s:
         row = s.get(DailyPnL, date.today())

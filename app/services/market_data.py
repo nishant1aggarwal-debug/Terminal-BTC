@@ -112,3 +112,30 @@ def get_snapshot(symbol: str, timeframe: str = "15m", limit: int = 200) -> Snaps
     )
     log.info("market_snapshot", symbol=symbol, tf=timeframe, last_close=snap.last_close, rsi=snap.rsi_14)
     return snap
+
+
+def get_recent_extremes(
+    symbol: str, timeframe: str = "15m", period: int = 22,
+) -> dict[str, float] | None:
+    """Returns {high, low, atr} over the last ``period`` bars — used by Chandelier Exit.
+
+    Returns ``None`` if the exchange call fails; caller should skip the
+    trailing check gracefully in that case.
+    """
+    try:
+        ohlcv = data_source.fetch_ohlcv(symbol, timeframe=timeframe, limit=max(period + 20, 30))
+    except Exception as exc:
+        log.warning("chandelier_fetch_failed", symbol=symbol, error=str(exc))
+        return None
+    if not ohlcv or len(ohlcv) < period:
+        return None
+    df = pd.DataFrame(ohlcv, columns=["ts", "open", "high", "low", "close", "volume"])
+    window = df.tail(period)
+    atr = AverageTrueRange(
+        high=df["high"], low=df["low"], close=df["close"], window=14,
+    ).average_true_range()
+    return {
+        "high": float(window["high"].max()),
+        "low": float(window["low"].min()),
+        "atr": float(atr.iloc[-1]) if len(atr) else 0.0,
+    }

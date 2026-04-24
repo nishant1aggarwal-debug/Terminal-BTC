@@ -12,13 +12,50 @@ Nothing here needs API keys — market data is public.
 """
 from __future__ import annotations
 
-from functools import lru_cache
-from typing import Any
+import time
+from functools import lru_cache, wraps
+from typing import Any, Callable, TypeVar
 
 import ccxt
 
 from app.config import get_settings
 from app.logging_setup import get_logger
+
+T = TypeVar("T")
+
+_RETRY_ATTEMPTS = 3
+_RETRY_BASE_MS = 500
+_RETRYABLE = (ccxt.RateLimitExceeded, ccxt.DDoSProtection, ccxt.NetworkError)
+
+
+def _with_retry(fn: Callable[..., T]) -> Callable[..., T]:
+    """Exponential-backoff retry wrapper for public ccxt calls.
+
+    Retries up to ``_RETRY_ATTEMPTS`` times on rate-limit/DDoS/network errors.
+    Backoff schedule: 500ms, 1000ms, 2000ms (cumulative ~3.5s worst case).
+    Any other exception propagates immediately — we only smooth over transient
+    issues, not mask bugs.
+    """
+    @wraps(fn)
+    def inner(*args: Any, **kwargs: Any) -> T:
+        last_exc: Exception | None = None
+        for attempt in range(_RETRY_ATTEMPTS):
+            try:
+                return fn(*args, **kwargs)
+            except _RETRYABLE as exc:
+                last_exc = exc
+                wait_ms = _RETRY_BASE_MS * (2 ** attempt)
+                log.warning(
+                    "exchange_retry",
+                    fn=fn.__name__,
+                    attempt=attempt + 1,
+                    error_type=type(exc).__name__,
+                    wait_ms=wait_ms,
+                )
+                time.sleep(wait_ms / 1000.0)
+        # Exhausted retries — surface the last exception.
+        raise last_exc  # type: ignore[misc]
+    return inner
 
 log = get_logger(__name__)
 
@@ -78,14 +115,17 @@ def source_name() -> str:
     return get_settings().data_source
 
 
+@_with_retry
 def fetch_ohlcv(symbol: str, timeframe: str = "15m", limit: int = 200) -> list[list[float]]:
     return get_client().fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
 
 
+@_with_retry
 def fetch_order_book(symbol: str, limit: int = 5) -> dict[str, Any]:
     return get_client().fetch_order_book(symbol, limit=limit)
 
 
+@_with_retry
 def fetch_tickers(symbols: list[str] | None = None) -> dict[str, dict[str, Any]]:
     """Batch-fetch last price / 24h change / volume for many symbols in one call.
 

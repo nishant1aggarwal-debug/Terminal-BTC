@@ -148,6 +148,24 @@ class Settings(BaseSettings):
     # correlated alts at once.
     max_positions_per_sector: int = 3
 
+    # Drawdown circuit breaker — halves position size when equity falls too
+    # far below its all-time peak, releases once recovered. Keeps losing
+    # streaks from compounding at full size.
+    dd_trigger_pct: float = 0.10      # halve size when equity < peak * (1 - 0.10)
+    dd_release_pct: float = 0.05      # release multiplier once equity >= peak * (1 - 0.05)
+    dd_size_mult: float = 0.5         # size multiplier when breaker is active
+
+    # Chandelier Exit (ATR-based trailing stop — standard on TradingView).
+    # Replaces the crude "50% of favorable move" trailing stop once TP1 hits.
+    chandelier_period: int = 22       # how many bars back for the high/low
+    chandelier_mult: float = 3.0      # N × ATR distance from the high/low
+
+    # Dashboard authentication — leave both empty for open mode (local dev).
+    # Set BOTH in production so /ui/, /api/*, /control/* require basic auth.
+    # Healthchecks (/healthz, /readyz) stay public regardless.
+    dashboard_user: str = ""
+    dashboard_pass: str = ""
+
     # Infra
     database_url: str = "sqlite:///data/terminal_btc.db"
     log_level: str = "INFO"
