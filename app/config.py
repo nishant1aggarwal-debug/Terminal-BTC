@@ -171,6 +171,24 @@ class Settings(BaseSettings):
     dashboard_user: str = ""
     dashboard_pass: str = ""
 
+    # Daily digest email — sends an HTML P&L summary at DIGEST_HOUR_UTC if all
+    # SMTP fields are set. Any missing field → job no-ops (logged, no error).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    digest_from: str = ""
+    digest_to: str = ""
+    digest_hour_utc: int = 23  # 23:55 UTC default
+    digest_minute_utc: int = 55
+
+    # Live execution exchange selector. "binance" routes orders through
+    # binance_client; "bybit" through bybit_client. Paper mode ignores this.
+    trade_exchange: str = "bybit"
+    bybit_api_key: str = ""
+    bybit_api_secret: str = ""
+    bybit_testnet: bool = False
+
     # Infra
     database_url: str = "sqlite:///data/terminal_btc.db"
     log_level: str = "INFO"
@@ -197,6 +215,14 @@ class Settings(BaseSettings):
         v = v.lower()
         if v not in {"bybit", "binance", "kraken"}:
             raise ValueError("data_source must be 'bybit', 'binance', or 'kraken'")
+        return v
+
+    @field_validator("trade_exchange")
+    @classmethod
+    def _check_trade_exchange(cls, v: str) -> str:
+        v = v.lower()
+        if v not in {"binance", "bybit"}:
+            raise ValueError("trade_exchange must be 'binance' or 'bybit'")
         return v
 
     @field_validator("margin_mode")

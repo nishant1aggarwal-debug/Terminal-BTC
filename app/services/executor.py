@@ -10,10 +10,16 @@ from sqlmodel import select
 
 from app.config import get_settings
 from app.db import get_session
-from app.exchange import binance_client
+from app.exchange import binance_client, bybit_client
 from app.logging_setup import get_logger
 from app.models import ClosedTrade, DailyPnL, Position, Trade
 from app.services import notifications, risk, targets
+
+
+def _live_client():
+    """Pick the right execution client based on TRADE_EXCHANGE config."""
+    settings = get_settings()
+    return bybit_client if settings.trade_exchange == "bybit" else binance_client
 
 log = get_logger(__name__)
 
@@ -259,7 +265,7 @@ def execute(
     if settings.paper_mode:
         equity = _paper_equity_usdt()
     else:
-        equity = binance_client.quote_equity_usdt()
+        equity = _live_client().quote_equity_usdt()
     notional = max(0.0, equity * size_pct)
 
     approval = risk.check(action=action, symbol=symbol, notional_usdt=notional)
@@ -325,7 +331,7 @@ def execute(
         return ExecutionResult(ok=True, status="dry", trade_id=trade_id, message="dry_run")
 
     try:
-        resp: dict[str, Any] = binance_client.create_order(
+        resp: dict[str, Any] = _live_client().create_order(
             symbol=symbol,
             side=action,
             amount=amount,

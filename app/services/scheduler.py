@@ -11,7 +11,7 @@ from app.db import get_session
 from app.exchange import data_source
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import auditor, backtest, executor, funding, macro, news, notifications, regime, signal, targets
+from app.services import auditor, backtest, email_digest, executor, funding, macro, news, notifications, regime, signal, targets
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -244,6 +244,11 @@ async def _news_job() -> None:
     await asyncio.to_thread(news.refresh_news)
 
 
+async def _digest_job() -> None:
+    """Send daily P&L summary email at DIGEST_HOUR_UTC:DIGEST_MINUTE_UTC."""
+    await asyncio.to_thread(email_digest.send_digest)
+
+
 async def _backtest_job() -> None:
     """Replay the rules engine against historical candles for every TRADE_SYMBOL."""
     await asyncio.to_thread(backtest.run_all)
@@ -284,6 +289,13 @@ def start() -> None:
     sched.add_job(
         _auditor_job, "cron", hour=settings.auditor_hour_utc, minute=0,
         id="auditor", max_instances=1,
+    )
+    # Daily P&L digest email at DIGEST_HOUR_UTC:DIGEST_MINUTE_UTC
+    # (no-op if SMTP env vars unset).
+    sched.add_job(
+        _digest_job, "cron",
+        hour=settings.digest_hour_utc, minute=settings.digest_minute_utc,
+        id="digest", max_instances=1,
     )
     sched.start()
     # Warm caches on startup so the first ticks see real values.
