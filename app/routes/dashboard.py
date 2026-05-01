@@ -18,7 +18,9 @@ from app.db import get_session
 from app.exchange import data_source
 from app.services import auditor as auditor_svc
 from app.services import backtest as backtest_svc
+from app.services import news as news_svc
 from app.services import notifications as notifications_svc
+from app.services import regime as regime_svc
 from app.services import risk as risk_svc
 from app.services import scheduler as scheduler_svc
 from app.models import (
@@ -125,6 +127,8 @@ async def overview() -> dict[str, Any]:
         "notifications_unread": notifications_svc.unread_count(),
         "active_overrides": len(auditor_svc.active_overrides()),
         "drawdown": risk_svc.drawdown_state(),
+        "regime": regime_svc.current_regime(),
+        "kelly": risk_svc.kelly_fraction(),
     }
 
 
@@ -211,6 +215,7 @@ async def markets() -> list[dict[str, Any]]:
             "bias": bias,
             "last_action": action,
             "last_confidence": last_action.get("confidence"),
+            "news_sentiment": news_svc.symbol_sentiment(sym, hours=3),
         })
     _MARKETS_CACHE["ts"] = now
     _MARKETS_CACHE["data"] = out
@@ -238,6 +243,11 @@ async def overrides_list(symbol: str | None = None) -> dict[str, Any]:
 @router.get("/audits")
 async def audits_list(limit: int = Query(20, ge=1, le=100)) -> list[dict[str, Any]]:
     return auditor_svc.recent_audits(limit=limit)
+
+
+@router.get("/news")
+async def news_feed(limit: int = Query(30, ge=1, le=200)) -> list[dict[str, Any]]:
+    return news_svc.recent_news(limit=limit)
 
 
 @router.get("/positions")

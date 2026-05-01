@@ -11,7 +11,7 @@ from app.db import get_session
 from app.exchange import data_source
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import auditor, backtest, executor, funding, macro, notifications, signal, targets
+from app.services import auditor, backtest, executor, funding, macro, news, notifications, regime, signal, targets
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -234,6 +234,16 @@ async def _macro_job() -> None:
     await asyncio.to_thread(macro.refresh_fear_greed)
 
 
+async def _regime_job() -> None:
+    """Refresh BTC 4h regime classification (bull/bear/chop)."""
+    await asyncio.to_thread(regime.refresh_regime)
+
+
+async def _news_job() -> None:
+    """Pull latest CryptoPanic posts and store NewsEvent rows."""
+    await asyncio.to_thread(news.refresh_news)
+
+
 async def _backtest_job() -> None:
     """Replay the rules engine against historical candles for every TRADE_SYMBOL."""
     await asyncio.to_thread(backtest.run_all)
@@ -257,6 +267,14 @@ def start() -> None:
     sched.add_job(
         _macro_job, "interval", minutes=settings.macro_poll_min, id="macro", max_instances=1,
     )
+    # BTC 4h regime — same cadence as macro since it depends on F&G + EMAs.
+    sched.add_job(
+        _regime_job, "interval", minutes=settings.macro_poll_min, id="regime", max_instances=1,
+    )
+    # CryptoPanic news — every NEWS_POLL_MIN minutes.
+    sched.add_job(
+        _news_job, "interval", minutes=settings.news_poll_min, id="news", max_instances=1,
+    )
     # Nightly backtest at BACKTEST_HOUR_UTC.
     sched.add_job(
         _backtest_job, "cron", hour=settings.backtest_hour_utc, minute=0,
@@ -268,8 +286,11 @@ def start() -> None:
         id="auditor", max_instances=1,
     )
     sched.start()
-    # Warm the F&G cache on startup so the first ticks see it.
-    asyncio.get_event_loop().create_task(_macro_job())
+    # Warm caches on startup so the first ticks see real values.
+    loop = asyncio.get_event_loop()
+    loop.create_task(_macro_job())
+    loop.create_task(_regime_job())
+    loop.create_task(_news_job())
     asyncio.get_event_loop().create_task(_tv_consumer())
     _scheduler = sched
     log.info(

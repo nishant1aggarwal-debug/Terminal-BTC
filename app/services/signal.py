@@ -11,7 +11,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.logging_setup import get_logger
-from app.services import macro, rules_signal
+from app.services import macro, news, regime, rules_signal
 
 log = get_logger(__name__)
 
@@ -68,6 +68,22 @@ def generate(
             )
 
     rd = rules_signal.generate_decision(snapshot, tv_alert, position)
+
+    # Regime gate: in BULL only longs fire, in BEAR only shorts; CHOP halves size.
+    current = regime.current_regime()
+    if rd.action == "buy" and current == "bear":
+        rd.reasoning = f"{rd.reasoning} | regime=bear → long demoted to hold"
+        rd.action = "hold"
+        rd.size_pct = 0.0
+    elif rd.action == "sell" and current == "bull":
+        rd.reasoning = f"{rd.reasoning} | regime=bull → short demoted to hold"
+        rd.action = "hold"
+        rd.size_pct = 0.0
+    elif rd.action in {"buy", "sell"} and current == "chop":
+        rd.reasoning = f"{rd.reasoning} | regime=chop → size halved"
+        # Halving happens in the sizing block below; flag it with a multiplier.
+        rd.size_pct *= 0.5
+
     # Nudge confidence based on Fear & Greed extremes (no-op if F&G missing).
     fg = macro.get_latest("fear_greed")
     if fg is not None and rd.action != "hold":
@@ -79,6 +95,28 @@ def generate(
                 f"{rd.reasoning} | F&G={fg.value:.0f} ({fg.classification}) — conf {tag} x{mult:.2f}"
             )
 
+    # News sentiment — recency-weighted CryptoPanic score in [-1, +1] for the
+    # symbol's currency. Positive sentiment boosts long confidence (and
+    # dampens shorts), negative does the inverse. Capped per news_sentiment_max_adj.
+    if rd.action in {"buy", "sell"}:
+        try:
+            sym = str(snapshot.get("symbol", ""))
+            settings_local = get_settings()
+            sent = news.symbol_sentiment(sym, hours=settings_local.news_sentiment_window_hours)
+        except Exception:
+            sent = 0.0
+        if abs(sent) > 0.05:
+            cap = get_settings().news_sentiment_max_adj
+            adj = max(-cap, min(cap, sent * cap))  # scale [-1,1] → [-cap, +cap]
+            if rd.action == "buy":
+                rd.confidence = round(max(0.0, min(1.0, rd.confidence + adj)), 3)
+            else:  # sell
+                rd.confidence = round(max(0.0, min(1.0, rd.confidence - adj)), 3)
+            tag = "boosted" if adj > 0 else "dampened"
+            rd.reasoning = (
+                f"{rd.reasoning} | news={sent:+.2f} → conf {tag} {adj:+.2f}"
+            )
+
     # Smart position sizing: base 3% of equity, scaled UP by confidence above
     # threshold and by ADX strength. High-conviction + strong-trend setups bet
     # bigger; weak setups that barely clear the threshold bet tiny. Cap at 6%.
@@ -86,18 +124,35 @@ def generate(
     # multiply the sized fraction by dd_size_mult (default 0.5) until recovered.
     if rd.action in {"buy", "sell"}:
         settings = get_settings()
-        conf_boost = 1.0 + max(0.0, rd.confidence - settings.min_signal_confidence) * 2.0
-        adx = float(snapshot.get("adx_14", 20.0))
-        adx_boost = min(1.5, 1.0 + max(0.0, adx - 20.0) * 0.02)
-        sized = 0.03 * conf_boost * adx_boost
-
         from app.services import risk
+
+        # Prefer Kelly sizing once we have 50+ closed trades — empirically
+        # grounded in actual win rate and win/loss ratio. Before that,
+        # fall back to confidence+ADX heuristic (no real history to fit).
+        kelly = risk.kelly_fraction(min_trades=50)
+        if kelly is not None:
+            sized = kelly["fraction"]
+            rd.reasoning = (
+                f"{rd.reasoning} | Kelly {kelly['half_kelly'] * 100:.2f}% "
+                f"(p={kelly['win_rate']:.2f}, b={kelly['avg_win_loss_ratio']:.2f}, "
+                f"n={kelly['sample_size']})"
+            )
+        else:
+            conf_boost = 1.0 + max(0.0, rd.confidence - settings.min_signal_confidence) * 2.0
+            adx = float(snapshot.get("adx_14", 20.0))
+            adx_boost = min(1.5, 1.0 + max(0.0, adx - 20.0) * 0.02)
+            sized = 0.03 * conf_boost * adx_boost
+
         dd = risk.drawdown_state()
         if dd["multiplier_active"]:
             sized *= dd["multiplier"]
             rd.reasoning = (
                 f"{rd.reasoning} | DD {dd['dd_pct'] * 100:.1f}% · size ×{dd['multiplier']}"
             )
+
+        # Honour the chop-regime half-size already baked in earlier.
+        if rd.size_pct > 0:
+            sized = min(sized, rd.size_pct) if rd.size_pct < 0.06 else sized
 
         rd.size_pct = min(0.06, round(sized, 4))
         rd.reasoning = f"{rd.reasoning} | size {rd.size_pct * 100:.2f}%"

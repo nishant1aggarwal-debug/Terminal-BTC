@@ -26,6 +26,8 @@
     <span id="hb-next-tick" class="hb-pill muted">next tick: —</span>
     <span id="hb-last-summary" class="hb-pill muted">—</span>
     <span id="hb-drawdown" class="hb-pill muted">DD —</span>
+    <span id="hb-regime" class="hb-pill muted">regime —</span>
+    <span id="hb-kelly" class="hb-pill muted">size: heuristic</span>
   </div>
 
   <main>
@@ -276,6 +278,16 @@
           </thead>
           <tbody><tr><td colspan="5" class="muted">no decisions yet — run a tick</td></tr></tbody>
         </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-head">
+        <h2>Latest crypto news <span class="muted" style="font-weight:400; font-size:11px;">— CryptoPanic</span></h2>
+        <span class="muted" id="news-count">—</span>
+      </div>
+      <div id="news-feed" class="alerts-feed">
+        <div class="muted" style="padding:14px;">no news fetched yet — waiting for first refresh.</div>
       </div>
     </section>
 

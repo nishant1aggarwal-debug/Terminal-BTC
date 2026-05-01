@@ -113,6 +113,25 @@ function renderHeartbeat(ov) {
     ddEl.textContent = "DD —";
     ddEl.className = "hb-pill muted";
   }
+
+  // Regime pill — bull/bear/chop drives signal-side gating.
+  const regEl = document.getElementById("hb-regime");
+  const reg = ov.regime || "—";
+  regEl.textContent = `regime ${reg}`;
+  regEl.className = reg === "bull" ? "hb-pill alive"
+    : reg === "bear" ? "hb-pill down"
+    : reg === "chop" ? "hb-pill stale"
+    : "hb-pill muted";
+
+  // Kelly pill — shows whether sizing has switched from heuristic to Kelly.
+  const kEl = document.getElementById("hb-kelly");
+  if (ov.kelly && ov.kelly.fraction !== undefined) {
+    kEl.textContent = `Kelly ${(ov.kelly.fraction * 100).toFixed(2)}% · n=${ov.kelly.sample_size}`;
+    kEl.className = "hb-pill alive";
+  } else {
+    kEl.textContent = "size: heuristic (n<50)";
+    kEl.className = "hb-pill muted";
+  }
 }
 
 function renderMarkets(rows) {
@@ -157,6 +176,10 @@ function renderMarkets(rows) {
     if (r.macd_hist != null) {
       const mCls = r.macd_hist > 0 ? "good" : "bad";
       chips.push(`<span class="chip ${mCls}">MACD ${r.macd_hist >= 0 ? "+" : ""}${r.macd_hist.toFixed(3)}</span>`);
+    }
+    if (r.news_sentiment != null && Math.abs(r.news_sentiment) > 0.1) {
+      const nCls = r.news_sentiment > 0 ? "good" : "bad";
+      chips.push(`<span class="chip ${nCls}">news ${r.news_sentiment >= 0 ? "+" : ""}${r.news_sentiment.toFixed(2)}</span>`);
     }
 
     return `
@@ -672,6 +695,34 @@ function renderOverrides(data) {
   }).join("");
 }
 
+function renderNews(rows) {
+  const host = document.getElementById("news-feed");
+  const countEl = document.getElementById("news-count");
+  countEl.textContent = `${rows.length} headlines`;
+  if (!rows.length) {
+    host.innerHTML = `<div class="muted" style="padding:14px;">no news fetched yet — waiting for first refresh.</div>`;
+    return;
+  }
+  host.innerHTML = rows.slice(0, 30).map(n => {
+    const sent = n.sentiment_score || 0;
+    const sentCls = sent > 0.1 ? "success" : sent < -0.1 ? "danger" : "info";
+    const sentLabel = sent > 0.1 ? "BULL" : sent < -0.1 ? "BEAR" : "NEUTRAL";
+    const sentBadgeCls = sent > 0.1 ? "TP1" : sent < -0.1 ? "SL" : "INFO";
+    const ago = relTime(n.ts);
+    const symbols = (n.currencies || []).slice(0, 3).join(" · ") || "—";
+    return `
+      <div class="alert-row ${sentCls}">
+        <div class="alert-kind ${sentBadgeCls}">${sentLabel}</div>
+        <div class="alert-main">
+          <div class="alert-title"><a href="${escapeHtml(n.url)}" target="_blank" rel="noopener" style="color:var(--text);">${escapeHtml(n.title)}</a></div>
+          <div class="alert-msg">${symbols}</div>
+        </div>
+        <div class="alert-time">${ago}</div>
+      </div>
+    `;
+  }).join("");
+}
+
 async function runAudit() {
   const btn = document.getElementById("btn-audit");
   btn.disabled = true; btn.textContent = "Auditing…";
@@ -694,7 +745,7 @@ async function fastMarketsRefresh() {
 
 async function refreshAll() {
   try {
-    const [overview, positions, trades, decisions, equity, stats, signals, backtest, markets, alerts, overrides] = await Promise.all([
+    const [overview, positions, trades, decisions, equity, stats, signals, backtest, markets, alerts, overrides, newsFeed] = await Promise.all([
       fetchJSON("/api/overview"),
       fetchJSON("/api/positions"),
       fetchJSON("/api/trades?limit=50"),
@@ -706,6 +757,7 @@ async function refreshAll() {
       fetchJSON("/api/markets"),
       fetchJSON("/api/notifications?limit=50"),
       fetchJSON("/api/overrides"),
+      fetchJSON("/api/news?limit=30"),
     ]);
     window._tvSource = (overview.data_source || "bybit").toUpperCase();
     renderStatusFlags(overview);
@@ -722,6 +774,7 @@ async function refreshAll() {
     renderBacktest(backtest);
     renderAlerts(alerts);
     renderOverrides(overrides);
+    renderNews(newsFeed);
 
     // Sync Run-backtest button label with real backtest state.
     const btBtn = document.getElementById("btn-backtest");

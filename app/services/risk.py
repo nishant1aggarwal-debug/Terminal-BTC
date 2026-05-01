@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 
 from sqlmodel import select
 
@@ -121,6 +122,48 @@ def _peak_equity(current: float) -> float:
             s.add(row)
             s.commit()
     return peak
+
+
+def kelly_fraction(min_trades: int = 50) -> dict[str, Any] | None:
+    """Compute half-Kelly sizing fraction from the last ``min_trades`` ClosedTrades.
+
+    Returns None when there's not enough history — caller falls back to the
+    confidence+ADX-scaled sizing. Half-Kelly (0.5 * Kelly) is the conservative
+    choice to survive the variance inherent in a finite sample.
+
+    Formula: Kelly f* = (p*b - q) / b
+      p = win rate, q = 1-p, b = avg_win / abs(avg_loss)
+    """
+    from app.models import ClosedTrade
+    from sqlmodel import desc as _desc
+    with get_session() as s:
+        rows = s.exec(
+            select(ClosedTrade).order_by(_desc(ClosedTrade.closed_at)).limit(min_trades)
+        ).all()
+    if len(rows) < min_trades:
+        return None
+    wins = [t.net_pnl_usdt for t in rows if t.net_pnl_usdt > 0]
+    losses = [t.net_pnl_usdt for t in rows if t.net_pnl_usdt < 0]
+    if not wins or not losses:
+        return None
+    p = len(wins) / len(rows)
+    avg_win = sum(wins) / len(wins)
+    avg_loss = abs(sum(losses) / len(losses))
+    if avg_loss == 0:
+        return None
+    b = avg_win / avg_loss
+    full_kelly = (p * b - (1 - p)) / b
+    half_kelly = max(0.0, full_kelly) * 0.5
+    # Cap at 8% of equity — if Kelly says more, trust less.
+    fraction = min(0.08, half_kelly)
+    return {
+        "sample_size": len(rows),
+        "win_rate": p,
+        "avg_win_loss_ratio": b,
+        "full_kelly": full_kelly,
+        "half_kelly": half_kelly,
+        "fraction": fraction,
+    }
 
 
 def drawdown_state() -> dict[str, float | bool]:

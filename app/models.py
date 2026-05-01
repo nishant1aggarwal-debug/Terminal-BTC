@@ -140,6 +140,24 @@ class MacroIndicator(SQLModel, table=True):
     raw: Optional[str] = None
 
 
+class NewsEvent(SQLModel, table=True):
+    """One crypto news post per row — ingested from CryptoPanic.
+
+    ``sentiment_score`` is a [-1, +1] float derived from CryptoPanic's own
+    vote breakdown (positive / negative / important). ``currencies`` is a
+    comma-joined list of symbols the post mentions (e.g., "BTC,ETH").
+    """
+    id: Optional[int] = Field(default=None, primary_key=True)
+    external_id: str = Field(index=True, unique=True)
+    ts: datetime = Field(default_factory=_utcnow, index=True)
+    title: str
+    url: str = ""
+    source: str = "cryptopanic"
+    currencies: str = Field(default="", index=True)
+    sentiment_score: float = 0.0
+    raw: Optional[str] = None
+
+
 class BacktestReport(SQLModel, table=True):
     """Result of replaying the rules engine over historical candles for one symbol.
 

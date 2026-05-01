@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     macro_poll_min: int = 15
     fear_greed_api_url: str = "https://api.alternative.me/fng/?limit=1"
 
+    # News & sentiment — CryptoPanic free tier, no key required.
+    news_poll_min: int = 15
+    news_sentiment_window_hours: int = 3
+    news_sentiment_max_adj: float = 0.10  # max confidence multiplier impact
+
     # Backtester — replays rules_signal against historical candles to measure
     # out-of-sample win rate / profit factor before promoting to live.
     backtest_candles: int = 500          # how many bars back per symbol

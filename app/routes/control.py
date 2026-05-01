@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 import asyncio
 
-from app.services import auditor, backtest, macro, notifications, risk
+from app.services import auditor, backtest, macro, news, notifications, regime, risk
 from app.services.scheduler import tick
 
 router = APIRouter(prefix="/control", tags=["control"])
@@ -48,6 +48,18 @@ async def macro_refresh() -> dict[str, Any]:
     if result is None:
         return {"ok": False, "error": "fetch_failed"}
     return {"ok": True, **result}
+
+
+@router.post("/regime-refresh")
+async def regime_refresh() -> dict[str, Any]:
+    result = await asyncio.to_thread(regime.refresh_regime)
+    return {"ok": True, **(result or {})}
+
+
+@router.post("/news-refresh")
+async def news_refresh() -> dict[str, Any]:
+    new_count = await asyncio.to_thread(news.refresh_news)
+    return {"ok": True, "new_rows": new_count}
 
 
 @router.post("/notifications/mark-read")
