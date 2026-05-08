@@ -23,6 +23,27 @@ log = get_logger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     init_db()
+    # FORCE wide-universe defaults regardless of what Render env vars say.
+    # Reason: Render's blueprint sync stamped DATA_SOURCE=kraken on the service
+    # and won't auto-update it from render.yaml on subsequent syncs (Render's
+    # behaviour, not ours). Overriding in-process means the user gets the wide
+    # universe just by us pushing a commit — no manual Render env edits.
+    # To opt out: set DATA_SOURCE_LOCK=true in Render (rare).
+    import os
+    if os.getenv("DATA_SOURCE_LOCK", "").lower() != "true":
+        if settings.data_source == "kraken":
+            log.info("forcing_wide_universe_data_source", was="kraken", now="mexc")
+            settings.data_source = "mexc"
+        if not settings.auto_discover_symbols:
+            log.info("forcing_auto_discover_on")
+            settings.auto_discover_symbols = True
+        # Reset the data_source ccxt client cache so it picks up the new exchange.
+        try:
+            from app.exchange.data_source import get_client as _get_client
+            _get_client.cache_clear()
+        except Exception:
+            pass
+
     # Auto-discover the trade universe from the data source's market list when
     # AUTO_DISCOVER_SYMBOLS=true. Mutates settings.trade_symbols + symbol_allowlist
     # in-place so every downstream module (scheduler, risk, dashboard) sees the
@@ -36,8 +57,6 @@ async def lifespan(app: FastAPI):
         if discovered:
             joined = ",".join(discovered)
             settings.trade_symbols = joined
-            # Allowlist gets the union so TradingView webhooks for any
-            # discovered symbol are accepted.
             existing = set(settings.allowed_symbols)
             existing.update(discovered)
             settings.symbol_allowlist = ",".join(sorted(existing))
