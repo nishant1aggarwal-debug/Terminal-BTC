@@ -219,8 +219,12 @@ class Settings(BaseSettings):
     @classmethod
     def _check_data_source(cls, v: str) -> str:
         v = v.lower()
-        if v not in {"bybit", "binance", "kraken"}:
-            raise ValueError("data_source must be 'bybit', 'binance', or 'kraken'")
+        # Must mirror data_source._SUPPORTED. Exchanges added here become valid
+        # DATA_SOURCE env values; pydantic rejects unknown ones at startup.
+        allowed = {"kraken", "mexc", "bitget", "gateio", "okx", "htx",
+                   "bybit", "binance"}
+        if v not in allowed:
+            raise ValueError(f"data_source must be one of {sorted(allowed)}")
         return v
 
     @field_validator("trade_exchange")

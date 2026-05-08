@@ -123,7 +123,9 @@ def symbol_sentiment(symbol: str, hours: int = 3, half_life_minutes: int = 60) -
     for r in rows:
         if code not in (r.currencies or "").split(","):
             continue
-        age_min = max(0.0, (now - r.ts).total_seconds() / 60.0)
+        # Postgres returns naive datetimes; attach UTC so subtraction works.
+        r_ts = r.ts if r.ts.tzinfo is not None else r.ts.replace(tzinfo=timezone.utc)
+        age_min = max(0.0, (now - r_ts).total_seconds() / 60.0)
         weight = 0.5 ** (age_min / max(1, half_life_minutes))
         numer += r.sentiment_score * weight
         denom += weight

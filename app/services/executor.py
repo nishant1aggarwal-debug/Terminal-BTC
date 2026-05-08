@@ -40,6 +40,20 @@ def _commission(notional: float) -> float:
     return notional * (_fee_bps() / 10_000.0)
 
 
+def _as_utc(dt):
+    """Normalize a datetime to tz-aware UTC.
+
+    Postgres returns naive datetimes for plain ``DateTime`` columns; SQLite
+    behaves the same. Subtracting a naive value from ``datetime.now(timezone.utc)``
+    raises TypeError, so we attach UTC tzinfo when missing.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _bump_daily_realized(amount: float) -> None:
     today = date.today()
     with get_session() as s:
@@ -128,7 +142,8 @@ def _update_position(
             realized_net = net
             entry_notional = closed_qty * pos.avg_entry
             pnl_pct = (net / entry_notional * 100.0) if entry_notional else 0.0
-            hold_sec = int((now - (pos.opened_at or now)).total_seconds())
+            opened_at_aware = _as_utc(pos.opened_at) or now
+            hold_sec = int((now - opened_at_aware).total_seconds())
             closed = ClosedTrade(
                 closed_at=now,
                 symbol=symbol,
@@ -136,7 +151,7 @@ def _update_position(
                 qty=closed_qty,
                 entry_price=pos.avg_entry,
                 exit_price=fill_price,
-                entry_ts=pos.opened_at or now,
+                entry_ts=opened_at_aware,
                 gross_pnl_usdt=gross,
                 commission_usdt=commission_total,
                 net_pnl_usdt=net,
