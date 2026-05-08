@@ -109,6 +109,12 @@ class Settings(BaseSettings):
         "SHIB/USDT,PEPE/USDT,WIF/USDT,BONK/USDT,FLOKI/USDT,JUP/USDT,PYTH/USDT,JTO/USDT,ORDI/USDT"
     )
 
+    # Auto-discover the trade universe at startup from the data source's listed
+    # USDT pairs. Set true when DATA_SOURCE is a wide-universe exchange (mexc,
+    # bitget, gateio) and you want 50-200+ pairs instead of the hardcoded 14.
+    auto_discover_symbols: bool = False
+    auto_discover_top_n: int = 50
+
     # Macro context — Fear & Greed pulled every MACRO_POLL_MIN minutes.
     # When F&G is extreme (>80 greed or <20 fear), the rules engine
     # dampens same-direction confidence and boosts contrarian confidence.

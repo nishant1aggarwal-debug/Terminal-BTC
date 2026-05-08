@@ -129,6 +129,8 @@ async def overview() -> dict[str, Any]:
         "drawdown": risk_svc.drawdown_state(),
         "regime": regime_svc.current_regime(),
         "kelly": risk_svc.kelly_fraction(),
+        "auto_discover": settings.auto_discover_symbols,
+        "universe_size": len(settings.symbols),
     }
 
 

@@ -25,8 +25,19 @@ services:
       # IMPORTANT: Bybit and Binance block datacenter IPs from some clouds.
       # Kraken is the safest default for Render/Railway/Fly deploys. Switch
       # to bybit/binance only when running locally.
+      # Data source picks the exchange used for OHLCV, tickers, and order books.
+      # Bybit + Binance block AWS US datacenter IPs (Render free tier sits in
+      # us-east/us-west AWS), so we default to a wide-universe alternative that
+      # works from datacenters: mexc (~600 USDT futures), bitget (~500),
+      # gateio (~400), kraken (~14, the rock-solid fallback). When you set
+      # AUTO_DISCOVER_SYMBOLS=true, the trade universe expands to top-N pairs
+      # automatically — no manual TRADE_SYMBOLS list to maintain.
       - key: DATA_SOURCE
-        value: kraken
+        value: mexc
+      - key: AUTO_DISCOVER_SYMBOLS
+        value: "true"
+      - key: AUTO_DISCOVER_TOP_N
+        value: "60"
       - key: PAPER_STARTING_EQUITY_USDT
         value: "5000"
       - key: POLL_INTERVAL_SEC

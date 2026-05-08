@@ -59,7 +59,18 @@ def _with_retry(fn: Callable[..., T]) -> Callable[..., T]:
 
 log = get_logger(__name__)
 
-_SUPPORTED = {"bybit", "binance", "kraken"}
+_SUPPORTED = {
+    # Datacenter-friendly exchanges (work from Render free tier)
+    "kraken",      # ~14 USDT pairs — limited but rock-solid
+    "mexc",        # ~600 USDT futures — biggest alt universe, permissive geo
+    "bitget",      # ~500 USDT futures — wide alt coverage
+    "gateio",      # ~400 USDT futures — wide alt coverage
+    "okx",         # ~200 USDT futures — sometimes US-blocked
+    "htx",         # Huobi/HTX — wide universe
+    # Geo-blocked from US datacenters (Render free tier blocks them)
+    "bybit",       # ~400 pairs but BLOCKED from AWS US
+    "binance",     # ~400 pairs but BLOCKED from AWS US
+}
 
 # Pairs that Kraken doesn't list in USDT quote (they have USD versions instead).
 # Skipping these on Kraken avoids symbol fetches returning empty data. If the
@@ -101,9 +112,91 @@ def _build(source: str) -> ccxt.Exchange:
     if source not in _SUPPORTED:
         raise ValueError(f"unsupported DATA_SOURCE={source!r}; supported: {sorted(_SUPPORTED)}")
     klass = getattr(ccxt, source)
-    client = klass({"enableRateLimit": True})
-    log.info("data_source_init", source=source)
+    # For exchanges with futures/swap markets, prefer the swap (perp) market type
+    # so fetch_markets returns USDT perps, not just spot. Most users want
+    # leveraged trading, not spot.
+    options: dict[str, Any] = {"enableRateLimit": True}
+    if get_settings().trade_market == "futures" and source in {"mexc", "bitget", "gateio", "okx", "bybit", "binance"}:
+        options["options"] = {"defaultType": "swap"}
+    elif source == "htx" and get_settings().trade_market == "futures":
+        options["options"] = {"defaultType": "future"}
+    client = klass(options)
+    log.info("data_source_init", source=source, default_type=options.get("options", {}).get("defaultType"))
     return client
+
+
+def discover_universe(top_n: int = 50) -> list[str]:
+    """Auto-discover the top-N most-traded USDT pairs on the active exchange.
+
+    Use this to escape the hardcoded TRADE_SYMBOLS list — when DATA_SOURCE points
+    at a wide-universe exchange (mexc, bitget, gateio), this returns 50-200+
+    actively-trading pairs instead of the 14 we hardcode for Kraken.
+
+    Filters:
+      * Quote currency = USDT
+      * For futures: only swap/perp contracts (not dated futures)
+      * Active markets only (no delisted)
+      * Sorted by 24h quote volume desc, top_n returned
+    """
+    client = get_client()
+    settings = get_settings()
+    try:
+        markets = client.load_markets()
+    except Exception as exc:
+        log.warning("discover_universe_load_markets_failed", error=str(exc))
+        return []
+
+    candidates: list[str] = []
+    for sym, m in markets.items():
+        if not m.get("active", True):
+            continue
+        if (m.get("quote") or "").upper() != "USDT":
+            continue
+        if settings.trade_market == "futures":
+            # Want perpetual swaps, not dated futures or spot
+            if not m.get("swap", False):
+                continue
+            if m.get("expiry") is not None:
+                continue
+        else:
+            # Spot only
+            if not m.get("spot", False):
+                continue
+        # Normalize to "BASE/USDT" form (drop any contract suffix like ":USDT")
+        base = (m.get("base") or "").upper()
+        if not base:
+            continue
+        candidates.append(f"{base}/USDT")
+
+    # De-dup while preserving order
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for c in candidates:
+        if c in seen:
+            continue
+        seen.add(c)
+        deduped.append(c)
+
+    if not deduped:
+        return []
+
+    # Rank by 24h quote volume — one batched fetch_tickers call.
+    try:
+        tickers = client.fetch_tickers(deduped)
+    except Exception as exc:
+        log.warning("discover_universe_fetch_tickers_failed", error=str(exc))
+        # Fall back to alphabetical top-N if ranking fails — still better than 14 pairs.
+        return deduped[:top_n]
+
+    def _vol(sym: str) -> float:
+        t = tickers.get(sym) or {}
+        return float(t.get("quoteVolume") or t.get("baseVolume") or 0)
+
+    ranked = sorted(deduped, key=_vol, reverse=True)
+    out = ranked[:top_n]
+    log.info("discover_universe_done", source=settings.data_source, total=len(deduped),
+             returned=len(out), top=out[:5])
+    return out
 
 
 @lru_cache(maxsize=1)
