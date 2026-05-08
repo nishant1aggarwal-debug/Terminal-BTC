@@ -250,6 +250,39 @@ async def news_feed(limit: int = Query(30, ge=1, le=200)) -> list[dict[str, Any]
     return news_svc.recent_news(limit=limit)
 
 
+@router.get("/db-info")
+async def db_info() -> dict[str, Any]:
+    """Diagnostic — what database engine is the live app actually using?
+
+    Helps debug 'why aren't trades persisting' when env vars get out of sync
+    between Render and local. Reports the SQLAlchemy URL family (sqlite/
+    postgresql), the dialect+driver combo, and whether the connection works.
+    """
+    from app.db import engine
+    from app.models import Decision
+    info: dict[str, Any] = {
+        "url_scheme": engine.url.drivername,
+        "host": engine.url.host,
+        "database": engine.url.database,
+        "dialect": engine.dialect.name,
+    }
+    try:
+        with get_session() as s:
+            row_count = len(s.exec(select(Decision).limit(2000)).all())
+        info["connection_ok"] = True
+        info["decision_rows"] = row_count
+    except Exception as exc:
+        info["connection_ok"] = False
+        info["error"] = str(exc)
+    # Sanity check that psycopg is importable when we'd need it.
+    try:
+        import psycopg  # noqa: F401
+        info["psycopg_available"] = True
+    except ImportError:
+        info["psycopg_available"] = False
+    return info
+
+
 @router.get("/positions")
 async def positions() -> list[dict[str, Any]]:
     with get_session() as s:
