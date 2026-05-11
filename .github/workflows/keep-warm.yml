@@ -1,0 +1,36 @@
+name: Keep Render container warm
+
+# Renders free-tier evicts a container after 15 min of no EXTERNAL traffic. An
+# internal self-ping job doesn't reset the idle timer because Render only counts
+# inbound traffic from outside its network. Solution: hit /healthz from GitHub
+# Actions every 10 min — cheap (~150 min/month, well under the 2000-min free
+# allowance) and reliable.
+#
+# To disable: delete this file or set repository variable KEEP_WARM_DISABLED=1.
+
+on:
+  schedule:
+    # GitHub cron runs in UTC. Every 10 minutes:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:  # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    if: ${{ vars.KEEP_WARM_DISABLED != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Ping /healthz
+        run: |
+          URL="${{ vars.KEEP_WARM_URL || 'https://terminal-btc.onrender.com/healthz' }}"
+          echo "Pinging $URL ..."
+          for i in 1 2 3 4 5 6; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$URL")
+            echo "try $i: HTTP $code"
+            if [ "$code" = "200" ]; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::warning::Render service did not return 200 after 6 attempts"
+          exit 0  # don't fail the workflow — just log so we don't get spam emails
