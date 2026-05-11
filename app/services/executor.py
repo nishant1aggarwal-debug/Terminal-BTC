@@ -281,9 +281,18 @@ def execute(
         equity = _paper_equity_usdt()
     else:
         equity = _live_client().quote_equity_usdt()
-    notional = max(0.0, equity * size_pct)
 
-    approval = risk.check(action=action, symbol=symbol, notional_usdt=notional)
+    # size_pct is the MARGIN allocation as a fraction of equity. For futures
+    # we multiply by leverage to get true notional — this is what makes a
+    # "5% spot move on 10x" actually deliver ~50% return on the margin
+    # committed, instead of just ~5% on cash.
+    margin = max(0.0, equity * size_pct)
+    leverage_mult = settings.leverage if settings.trade_market == "futures" else 1.0
+    notional = margin * leverage_mult
+
+    # Risk gate checks MARGIN (the at-risk dollars), not notional — otherwise
+    # max_position_usdt would constantly trip on leveraged sizing.
+    approval = risk.check(action=action, symbol=symbol, notional_usdt=margin)
     if not approval.ok:
         log.warning("executor_risk_veto", decision_id=decision_id, reason=approval.reason)
         notifications.risk_veto(symbol, action, approval.reason)

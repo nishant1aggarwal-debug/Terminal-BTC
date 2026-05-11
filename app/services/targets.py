@@ -22,12 +22,38 @@ from typing import Any
 
 from sqlmodel import select
 
+from app.config import get_settings
 from app.db import get_session
 from app.logging_setup import get_logger
 from app.models import Position
 from app.services import notifications
 
 log = get_logger(__name__)
+
+
+def compute_levels(entry_price: float, atr: float, side: str) -> tuple[float, float, float]:
+    """Single source of truth for SL / TP1 / TP2 calculation.
+
+    Strategy:
+      * SL  — entry ± 1.5 × ATR  (tight ATR-anchored stop)
+      * TP2 — max(2.5 × ATR, entry × MIN_TP2_PCT)  (the meaningful move target)
+      * TP1 — half of TP2 distance from entry (first-half partial close)
+
+    The MIN_TP2_PCT floor matters because with 10x leverage we need a
+    sufficiently large spot move to outpace commissions + funding fees.
+    Default 5% spot ≈ 50% return on margin at 10x.
+
+    Returns (sl, tp1, tp2) prices already oriented for the side.
+    """
+    settings = get_settings()
+    if atr <= 0 or entry_price <= 0:
+        return 0.0, 0.0, 0.0
+    sl_dist = 1.5 * atr
+    tp2_dist = max(2.5 * atr, entry_price * settings.min_tp2_pct)
+    tp1_dist = tp2_dist * 0.5
+    if side == "buy":
+        return entry_price - sl_dist, entry_price + tp1_dist, entry_price + tp2_dist
+    return entry_price + sl_dist, entry_price - tp1_dist, entry_price - tp2_dist
 
 
 def set_targets_on_open(
@@ -47,16 +73,11 @@ def set_targets_on_open(
             return
         if pos.sl_price is not None and pos.tp1_price is not None:
             return  # Already planned; an add shouldn't reset targets.
-        if side == "buy":
-            pos.sl_price = entry_price - 1.5 * atr
-            pos.tp1_price = entry_price + 1.5 * atr
-            pos.tp2_price = entry_price + 2.5 * atr
-            pos.trailing_high_water = entry_price
-        else:  # sell / short
-            pos.sl_price = entry_price + 1.5 * atr
-            pos.tp1_price = entry_price - 1.5 * atr
-            pos.tp2_price = entry_price - 2.5 * atr
-            pos.trailing_high_water = entry_price
+        sl, tp1, tp2 = compute_levels(entry_price, atr, side)
+        pos.sl_price = sl
+        pos.tp1_price = tp1
+        pos.tp2_price = tp2
+        pos.trailing_high_water = entry_price
         if pos.initial_qty == 0.0:
             pos.initial_qty = abs(pos.qty)
         s.add(pos)

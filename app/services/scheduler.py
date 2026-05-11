@@ -108,8 +108,13 @@ async def _tick_symbol(
     # exchange even if we veto our own paper fill.
     if decision.action in {"buy", "sell"} and source == "scheduler":
         atr = float(snap.atr_14) if snap.atr_14 else 0.0
-        tp1 = snap.last_close + 1.5 * atr if decision.action == "buy" else snap.last_close - 1.5 * atr
-        tp2 = snap.last_close + 2.5 * atr if decision.action == "buy" else snap.last_close - 2.5 * atr
+        # Use the same SL/TP1/TP2 calculator as the executor + target monitor
+        # so the levels in the user notification are exactly what gets planned
+        # on the position when the order opens.
+        sl_calc, tp1, tp2 = targets.compute_levels(snap.last_close, atr, decision.action)
+        # Overwrite the decision's SL too — rules_signal still uses the old
+        # 1.5×ATR-only computation; align it with the unified helper.
+        decision.stop_loss = sl_calc
         # Whether the higher-timeframe trend agrees with this entry direction
         # — used by the style classifier to bump SWING → LONG when the 1h
         # backdrop says the move has legs.

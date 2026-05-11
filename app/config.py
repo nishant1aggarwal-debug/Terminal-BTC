@@ -94,6 +94,13 @@ class Settings(BaseSettings):
     # for a buy/sell to fire. 0.55 is permissive, 0.70 is strict. Lower =
     # more trades.
     min_signal_confidence: float = 0.55
+
+    # Minimum TP2 distance as a fraction of entry price. With 10x leverage a
+    # 5% move = 50% return on margin — comfortably outpaces 0.04% × 2 taker
+    # fees + funding. Set lower (0.02) for scalping; higher (0.10) for
+    # positional swings only. SL stays ATR-anchored; only TP2 (and TP1 = ½ TP2)
+    # use this floor.
+    min_tp2_pct: float = 0.05
     # Hard filter: refuses anything outside this list even if TradingView sends it.
     # Superset of TRADE_SYMBOLS plus meme/retail pairs you can opt into by adding
     # to TRADE_SYMBOLS. 50+ pairs covering essentially every high-volume USDT market.
