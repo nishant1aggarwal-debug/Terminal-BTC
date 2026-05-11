@@ -41,8 +41,11 @@ def _latest_mark_prices() -> dict[str, float]:
     """Most recent `last_close` seen per symbol, pulled from stored Decision snapshots."""
     marks: dict[str, float] = {}
     with get_session() as s:
-        # Newest first. We only keep the first (most recent) hit per symbol.
-        rows = s.exec(select(Decision).order_by(desc(Decision.ts)).limit(5_000)).all()
+        # 200 rows comfortably covers our 60-symbol universe — enough to find a
+        # recent snapshot for every active pair. Was 5000 which was a big DB
+        # read on every overview poll; that contributed to blowing the Neon
+        # egress quota in a few hours.
+        rows = s.exec(select(Decision).order_by(desc(Decision.ts)).limit(200)).all()
     for row in rows:
         if row.symbol in marks:
             continue
@@ -64,6 +67,17 @@ def _unrealized(position: Position, mark: float | None) -> float:
 
 @router.get("/overview")
 async def overview() -> dict[str, Any]:
+    import time
+    now_ts = time.time()
+    if _OVERVIEW_CACHE["data"] is not None and now_ts - _OVERVIEW_CACHE["ts"] < _OVERVIEW_TTL_SEC:
+        return _OVERVIEW_CACHE["data"]
+    payload = _compute_overview()
+    _OVERVIEW_CACHE["ts"] = now_ts
+    _OVERVIEW_CACHE["data"] = payload
+    return payload
+
+
+def _compute_overview() -> dict[str, Any]:
     settings = get_settings()
     with get_session() as s:
         ks = s.get(KillSwitch, 1)
@@ -136,6 +150,15 @@ async def overview() -> dict[str, Any]:
 
 _MARKETS_CACHE: dict[str, Any] = {"ts": 0.0, "data": []}
 _MARKETS_TTL_SEC = 5  # live prices — 5s cache so the UI feels real-time
+
+# DB-cheap caches for the very-hot endpoints. The dashboard polls /api/overview
+# and /api/notifications every 10 seconds and each hit triggers Postgres reads
+# (DailyPnL, Position, Trade, Decision, MacroIndicator, Notification, etc.).
+# Caching 5s server-side cuts Neon egress ~10x without changing user feel.
+_OVERVIEW_CACHE: dict[str, Any] = {"ts": 0.0, "data": None}
+_OVERVIEW_TTL_SEC = 5
+_NOTIF_CACHE: dict[str, Any] = {"ts": 0.0, "items": [], "unread": 0}
+_NOTIF_TTL_SEC = 5
 
 
 @router.get("/markets")
@@ -229,10 +252,21 @@ async def notifications_list(
     limit: int = Query(50, ge=1, le=500),
     unread_only: bool = Query(False),
 ) -> dict[str, Any]:
-    return {
+    # Cached 5s. Dashboard polls every 10s — without this each poll triggers
+    # two Postgres reads (unread_count + list_recent). Most users keep the
+    # default limit=50, so we key by (limit, unread_only) and reuse hot copies.
+    import time
+    cache_key = (limit, unread_only)
+    now_ts = time.time()
+    cached = _NOTIF_CACHE.get("by_key", {}).get(cache_key)
+    if cached is not None and now_ts - cached["ts"] < _NOTIF_TTL_SEC:
+        return cached["data"]
+    payload = {
         "unread": notifications_svc.unread_count(),
         "items": notifications_svc.list_recent(limit=limit, unread_only=unread_only),
     }
+    _NOTIF_CACHE.setdefault("by_key", {})[cache_key] = {"ts": now_ts, "data": payload}
+    return payload
 
 
 @router.get("/overrides")
