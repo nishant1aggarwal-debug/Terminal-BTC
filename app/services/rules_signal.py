@@ -178,12 +178,17 @@ def generate_decision(
 
     pos_qty = float((position or {}).get("qty", 0.0))
 
-    # Hard filters.
-    if spread > 5.0:
+    # Spread filter scales with the profit target. With min_tp2_pct = 5%, a
+    # round-trip spread cost up to ~4% of the target is acceptable — that lets
+    # us trade MEXC mid-cap alts which often run 10-30 bps spreads. Tighter
+    # targets (lower min_tp2_pct) auto-tighten the filter. Cap at 40 bps so we
+    # never trade a truly illiquid pair.
+    max_spread_bps = min(40.0, settings.min_tp2_pct * 100 * 8.0)  # 5% TP2 → 40 bps cap
+    if spread > max_spread_bps:
         return RulesDecision(
             action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
             confidence=0.20,
-            reasoning=f"hold: wide spread {spread:.1f}bps",
+            reasoning=f"hold: wide spread {spread:.1f}bps > {max_spread_bps:.0f}bps cap",
         )
     if atr <= 0:
         return RulesDecision(

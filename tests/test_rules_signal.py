@@ -58,7 +58,8 @@ def test_short_on_trend_down():
 
 
 def test_hold_on_wide_spread():
-    d = rules_signal.generate_decision(_snap(spread_bps=20.0))
+    # Cap is min_tp2_pct(0.05) * 100 * 8 = 40 bps. 50 bps trips it.
+    d = rules_signal.generate_decision(_snap(spread_bps=50.0))
     assert d.action == "hold"
     assert "spread" in d.reasoning
 
