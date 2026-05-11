@@ -110,6 +110,14 @@ async def _tick_symbol(
         atr = float(snap.atr_14) if snap.atr_14 else 0.0
         tp1 = snap.last_close + 1.5 * atr if decision.action == "buy" else snap.last_close - 1.5 * atr
         tp2 = snap.last_close + 2.5 * atr if decision.action == "buy" else snap.last_close - 2.5 * atr
+        # Whether the higher-timeframe trend agrees with this entry direction
+        # — used by the style classifier to bump SWING → LONG when the 1h
+        # backdrop says the move has legs.
+        htf_agrees = None
+        if decision.action == "buy" and snap_dict.get("htf_trend_up") is True:
+            htf_agrees = True
+        elif decision.action == "sell" and snap_dict.get("htf_trend_down") is True:
+            htf_agrees = True
         notifications.signal_fired(
             symbol=symbol,
             action=decision.action,
@@ -119,6 +127,7 @@ async def _tick_symbol(
             tp1=tp1,
             tp2=tp2,
             reasoning=decision.reasoning,
+            htf_agrees=htf_agrees,
         )
 
     with get_session() as s:
@@ -249,6 +258,22 @@ async def _digest_job() -> None:
     await asyncio.to_thread(email_digest.send_digest)
 
 
+async def _keep_warm_job() -> None:
+    """Self-ping the public /healthz every 10 min so Render's free-tier idle
+    eviction doesn't sleep the container between user visits. External traffic
+    is what resets Render's 15-min idle timer — internal CPU activity doesn't
+    count. Disabled when KEEP_WARM_URL is empty (e.g. local dev).
+    """
+    import os, urllib.request
+    url = os.getenv("KEEP_WARM_URL", "https://terminal-btc.onrender.com/healthz")
+    if not url:
+        return
+    try:
+        await asyncio.to_thread(urllib.request.urlopen, url, None, 10)
+    except Exception as exc:
+        log.warning("keep_warm_failed", error=str(exc))
+
+
 async def _backtest_job() -> None:
     """Replay the rules engine against historical candles for every TRADE_SYMBOL."""
     await asyncio.to_thread(backtest.run_all)
@@ -296,6 +321,12 @@ def start() -> None:
         _digest_job, "cron",
         hour=settings.digest_hour_utc, minute=settings.digest_minute_utc,
         id="digest", max_instances=1,
+    )
+    # Self-ping every 10 minutes so Render's idle eviction doesn't sleep the
+    # container — fixes the 503 on /control/audit-now and friends after long
+    # quiet periods.
+    sched.add_job(
+        _keep_warm_job, "interval", minutes=10, id="keep_warm", max_instances=1,
     )
     sched.start()
     # Warm caches on startup so the first ticks see real values.

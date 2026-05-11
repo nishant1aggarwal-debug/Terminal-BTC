@@ -88,7 +88,7 @@ class Settings(BaseSettings):
     # $500 max notional per position (= ~1 BTC on 10x from $5000 margin × leverage).
     max_position_usdt: float = 500.0
     max_daily_loss_usdt: float = 250.0
-    max_open_positions: int = 8
+    max_open_positions: int = 15
 
     # Signal threshold: composite multi-indicator confidence must exceed this
     # for a buy/sell to fire. 0.55 is permissive, 0.70 is strict. Lower =

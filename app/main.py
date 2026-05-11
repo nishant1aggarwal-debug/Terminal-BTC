@@ -43,6 +43,11 @@ async def lifespan(app: FastAPI):
             _get_client.cache_clear()
         except Exception:
             pass
+    # Bump the open-position cap to 15. Render's env var is stuck at 8 from the
+    # earlier blueprint sync; this override is the no-touch way to raise it.
+    if settings.max_open_positions < 15:
+        log.info("forcing_max_open_positions", was=settings.max_open_positions, now=15)
+        settings.max_open_positions = 15
 
     # Auto-discover the trade universe asynchronously. We DON'T do this inline
     # because it loads markets from MEXC (~600 pairs) and ranks by volume —

@@ -51,7 +51,7 @@ services:
       - key: MARGIN_MODE
         value: isolated
       - key: MAX_OPEN_POSITIONS
-        value: "8"
+        value: "15"
       - key: MAX_POSITION_USDT
         value: "500"
       - key: MAX_DAILY_LOSS_USDT

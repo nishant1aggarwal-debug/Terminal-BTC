@@ -108,6 +108,7 @@ class Notification(SQLModel, table=True):
     tp1: Optional[float] = None
     tp2: Optional[float] = None
     confidence: Optional[float] = None
+    style: Optional[str] = None  # "SCALP" | "SWING" | "LONG"  — set on SIGNAL kind
     read: bool = Field(default=False, index=True)
 
 

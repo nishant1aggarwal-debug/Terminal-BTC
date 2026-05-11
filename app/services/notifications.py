@@ -46,13 +46,14 @@ def fire(
     tp1: float | None = None,
     tp2: float | None = None,
     confidence: float | None = None,
+    style: str | None = None,
 ) -> Notification:
     if kind not in _VALID_KINDS:
         log.warning("unknown_notification_kind", kind=kind)
     n = Notification(
         kind=kind, symbol=symbol, title=title, message=message,
         severity=severity, action=action, price=price,
-        sl=sl, tp1=tp1, tp2=tp2, confidence=confidence,
+        sl=sl, tp1=tp1, tp2=tp2, confidence=confidence, style=style,
     )
     with get_session() as s:
         s.add(n)
@@ -62,25 +63,46 @@ def fire(
     return n
 
 
+def _classify_style(entry: float, sl: float | None, htf_agrees: bool | None) -> str:
+    """Tag a fresh signal as SCALP / SWING / LONG based on SL distance + HTF agreement.
+
+    Distance is measured as |entry-sl| / entry. The buckets:
+      * SCALP — stop within 0.6% of entry (tight, fast turnover, minutes-to-an-hour hold)
+      * SWING — stop 0.6%-1.5% from entry (standard 15m setups, hours-to-a-day hold)
+      * LONG  — stop > 1.5% from entry OR HTF strongly agrees (positional, days)
+    """
+    if entry is None or sl is None or entry <= 0:
+        return "SWING"
+    dist_pct = abs(entry - sl) / entry * 100.0
+    base = "SCALP" if dist_pct < 0.6 else "SWING" if dist_pct < 1.5 else "LONG"
+    # Upgrade SWING → LONG when higher-timeframe trend agrees — those setups
+    # typically run longer because they're trading with the dominant move.
+    if base == "SWING" and htf_agrees is True:
+        return "LONG"
+    return base
+
+
 def signal_fired(
     symbol: str, action: str, confidence: float, entry: float,
     sl: float | None, tp1: float | None, tp2: float | None, reasoning: str,
+    *, htf_agrees: bool | None = None,
 ) -> None:
+    style = _classify_style(entry, sl, htf_agrees)
     verb = "LONG" if action == "buy" else "SHORT"
-    title = f"{verb} {symbol}"
-    size_hint = f"@ {entry:.4f}"
-    risks = []
+    title = f"[{style}] {verb} {symbol}"
+    parts = [f"Entry {entry:.4f}"]
     if sl is not None:
-        risks.append(f"SL {sl:.4f}")
+        parts.append(f"SL {sl:.4f}")
     if tp1 is not None:
-        risks.append(f"TP1 {tp1:.4f}")
+        parts.append(f"TP1 {tp1:.4f}")
     if tp2 is not None:
-        risks.append(f"TP2 {tp2:.4f}")
-    message = f"{size_hint} · {' · '.join(risks) if risks else ''} · conf {int(confidence * 100)}% · {reasoning}"
+        parts.append(f"TP2 {tp2:.4f}")
+    message = " · ".join(parts) + f" · conf {int(confidence * 100)}% · {reasoning}"
     fire(
         "SIGNAL", symbol, title, message,
         severity="success" if action == "buy" else "warning",
-        action=action, price=entry, sl=sl, tp1=tp1, tp2=tp2, confidence=confidence,
+        action=action, price=entry, sl=sl, tp1=tp1, tp2=tp2,
+        confidence=confidence, style=style,
     )
 
 
@@ -144,6 +166,7 @@ def list_recent(limit: int = 50, unread_only: bool = False) -> list[dict[str, An
             "tp1": n.tp1,
             "tp2": n.tp2,
             "confidence": n.confidence,
+            "style": n.style,
             "read": n.read,
         }
         for n in rows

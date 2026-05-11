@@ -610,11 +610,29 @@ function renderAlerts(data) {
     const ago = relTime(a.ts);
     const severity = a.severity || "info";
     const unreadCls = a.read ? "" : "unread";
+    const styleBadge = a.style
+      ? `<span class="style-badge style-${a.style.toLowerCase()}">${a.style}</span>`
+      : "";
+    // For SIGNAL kind, render structured price levels prominently so the user
+    // can copy them to their exchange without parsing prose.
+    let levels = "";
+    if (a.kind === "SIGNAL" && a.price !== null && a.price !== undefined) {
+      const px = (v) => v == null ? "—" : fmtPrice(v);
+      levels = `
+        <div class="alert-levels">
+          <span class="lvl"><b>Entry</b> ${px(a.price)}</span>
+          <span class="lvl neg"><b>SL</b> ${px(a.sl)}</span>
+          <span class="lvl pos"><b>TP1</b> ${px(a.tp1)}</span>
+          <span class="lvl pos"><b>TP2</b> ${px(a.tp2)}</span>
+          ${a.confidence != null ? `<span class="lvl"><b>Conf</b> ${Math.round(a.confidence * 100)}%</span>` : ""}
+        </div>`;
+    }
     return `
       <div class="alert-row ${severity} ${unreadCls}">
         <div class="alert-kind ${a.kind}">${a.kind}</div>
         <div class="alert-main">
-          <div class="alert-title">${escapeHtml(a.title)}</div>
+          <div class="alert-title">${escapeHtml(a.title)}${styleBadge}</div>
+          ${levels}
           <div class="alert-msg">${escapeHtml(a.message || "")}</div>
         </div>
         <div class="alert-time">${ago}</div>
