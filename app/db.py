@@ -28,11 +28,49 @@ else:
 engine = create_engine(_settings.database_url, echo=False, **engine_kwargs)
 
 
+def _migrate_missing_columns() -> None:
+    """Postgres-only: add any model columns that aren't on the live tables yet.
+
+    SQLModel.metadata.create_all() creates new TABLES but never adds columns to
+    pre-existing ones. When we add a field to a model after a deploy, Postgres
+    keeps the old schema and the next SELECT raises UndefinedColumn. SQLite
+    tests always start fresh so this isn't visible locally.
+
+    We introspect the model's column list vs information_schema and emit
+    ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` for the gap. Idempotent and
+    cheap — runs on every boot.
+    """
+    if not engine.url.drivername.startswith("postgresql"):
+        return
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+    for table in SQLModel.metadata.tables.values():
+        if table.name not in existing_tables:
+            continue
+        live_cols = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in live_cols:
+                continue
+            try:
+                type_sql = col.type.compile(engine.dialect)
+                ddl = (
+                    f'ALTER TABLE "{table.name}" '
+                    f'ADD COLUMN IF NOT EXISTS "{col.name}" {type_sql}'
+                )
+                with engine.begin() as conn:
+                    conn.execute(text(ddl))
+            except Exception:
+                # Best-effort — never block startup on a migration glitch.
+                pass
+
+
 def init_db() -> None:
     # Import models so SQLModel.metadata is populated before create_all.
     from app import models  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
+    _migrate_missing_columns()
 
 
 def get_session() -> Session:
