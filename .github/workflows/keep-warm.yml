@@ -10,8 +10,11 @@ name: Keep Render container warm
 
 on:
   schedule:
-    # GitHub cron runs in UTC. Every 10 minutes:
-    - cron: "*/10 * * * *"
+    # GitHub cron runs in UTC. Every 5 minutes — short enough to never let
+    # Render's 15-min idle timer reach zero, which is what triggers the
+    # 'server failed detected' alert emails. 5min × 30s = 30 min/month,
+    # well within the 2000-min free allowance.
+    - cron: "*/5 * * * *"
   workflow_dispatch:  # allow manual runs from the Actions tab
 
 jobs:
