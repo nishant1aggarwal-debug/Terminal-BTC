@@ -37,7 +37,7 @@ services:
       - key: AUTO_DISCOVER_SYMBOLS
         value: "true"
       - key: AUTO_DISCOVER_TOP_N
-        value: "60"
+        value: "25"
       - key: PAPER_STARTING_EQUITY_USDT
         value: "5000"
       - key: POLL_INTERVAL_SEC

@@ -96,6 +96,14 @@ _KRAKEN_MISSING_USDT = {
     "CHZ/USDT", "GALA/USDT", "RUNE/USDT", "GRT/USDT",
 }
 
+# MEXC lists these in load_markets() but actual fetch_ticker / fetch_ohlcv calls
+# fail with "does not have market symbol". Caught from production logs — exclude
+# them at discovery time so they don't waste HTTP retries on every tick + saturate
+# the event loop while /healthz tries to respond.
+_MEXC_PHANTOM_SYMBOLS = {
+    "XAUT/USDT", "SILVER/USDT", "USOIL/USDT", "UKOIL/USDT", "TONCOIN/USDT",
+}
+
 
 def filter_supported(symbols: list[str]) -> list[str]:
     """Drop symbols the current data source doesn't list.
@@ -146,6 +154,13 @@ def discover_universe(top_n: int = 50) -> list[str]:
         log.warning("discover_universe_load_markets_failed", error=str(exc))
         return []
 
+    # Source-specific phantom-symbol filter — listed by the exchange but with
+    # no actual fetch_ticker / fetch_ohlcv backing. Excluding them at discovery
+    # time prevents wasted HTTP retries on every subsequent tick.
+    phantom: set[str] = set()
+    if settings.data_source == "mexc":
+        phantom = _MEXC_PHANTOM_SYMBOLS
+
     candidates: list[str] = []
     for sym, m in markets.items():
         if not m.get("active", True):
@@ -165,6 +180,9 @@ def discover_universe(top_n: int = 50) -> list[str]:
         # Normalize to "BASE/USDT" form (drop any contract suffix like ":USDT")
         base = (m.get("base") or "").upper()
         if not base:
+            continue
+        normalized = f"{base}/USDT"
+        if normalized in phantom:
             continue
         candidates.append(f"{base}/USDT")
 

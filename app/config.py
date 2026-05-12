@@ -120,7 +120,10 @@ class Settings(BaseSettings):
     # USDT pairs. Set true when DATA_SOURCE is a wide-universe exchange (mexc,
     # bitget, gateio) and you want 50-200+ pairs instead of the hardcoded 14.
     auto_discover_symbols: bool = False
-    auto_discover_top_n: int = 50
+    # 25 keeps Render free-tier CPU happy. 60 saturated the event loop during
+    # ticks and caused /healthz to time out (server_failed loop). Bump back up
+    # if you upgrade to Render Starter or run locally.
+    auto_discover_top_n: int = 25
 
     # Macro context — Fear & Greed pulled every MACRO_POLL_MIN minutes.
     # When F&G is extreme (>80 greed or <20 fear), the rules engine
