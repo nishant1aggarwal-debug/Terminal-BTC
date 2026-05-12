@@ -206,13 +206,20 @@ async def tick(
     else:
         symbols_to_run = data_source.filter_supported(settings.symbols)
 
-    # Parallel fan-out: fetch snapshots and run decisions concurrently.
-    # Previously sequential (16 × ~1s/symbol ≈ 16-20s) — hit Render's 30s
-    # request timeout on free tier. gather() brings it down to ~3-4s.
+    # Bounded parallelism: free-tier Render has ~5 CPU threads in the asyncio
+    # default pool, and a 60-symbol gather() saturates them — /healthz blocks
+    # waiting for the GIL, Render kills the container, restart loop. Cap at
+    # 6 concurrent so the event loop has slack and /healthz stays responsive.
+    sem = asyncio.Semaphore(6)
+
+    async def _bounded(sym, alert):
+        async with sem:
+            return await _tick_symbol(sym, tf, alert, source)
+
     coros = []
     for sym in symbols_to_run:
         alert_for_sym = tv_alert if tv_alert and tv_alert.get("symbol") == sym else None
-        coros.append(_tick_symbol(sym, tf, alert_for_sym, source))
+        coros.append(_bounded(sym, alert_for_sym))
     results = list(await asyncio.gather(*coros, return_exceptions=False))
 
     _last_tick_finished_at = datetime.now(timezone.utc).isoformat()
