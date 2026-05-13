@@ -253,17 +253,22 @@ def check(action: str, symbol: str, notional_usdt: float) -> Approval:
     # Sector cluster cap: if this symbol's sector already has N open positions,
     # refuse — too much correlated exposure.
     sec = sector_for(symbol)
-    counts = _sector_counts()
-    if counts.get(sec, 0) >= settings.max_positions_per_sector:
-        # Exclude the case where we're adding to an EXISTING position in this
-        # sector — pyramid adds don't count as new exposure clusters.
-        with get_session() as s:
-            pos = s.get(Position, symbol)
-        already_open = pos is not None and abs(pos.qty) > 1e-9
-        if not already_open:
-            return Approval(
-                False,
-                f"sector_cap_{sec}: {counts[sec]}/{settings.max_positions_per_sector}",
-            )
+    # The 'other' bucket holds every symbol not in the hardcoded sector map.
+    # Those are unrelated by design (MEXC auto-discovered memes / micro-caps),
+    # NOT a correlation cluster. Capping it at 3 was vetoing the bulk of the
+    # tradable universe. Skip the cap for 'other'.
+    if sec != "other":
+        counts = _sector_counts()
+        if counts.get(sec, 0) >= settings.max_positions_per_sector:
+            # Exclude the case where we're adding to an EXISTING position in this
+            # sector — pyramid adds don't count as new exposure clusters.
+            with get_session() as s:
+                pos = s.get(Position, symbol)
+            already_open = pos is not None and abs(pos.qty) > 1e-9
+            if not already_open:
+                return Approval(
+                    False,
+                    f"sector_cap_{sec}: {counts[sec]}/{settings.max_positions_per_sector}",
+                )
 
     return Approval(True, "approved")
