@@ -232,11 +232,12 @@ async def tick(
     else:
         symbols_to_run = data_source.filter_supported(settings.symbols)
 
-    # Bounded parallelism: free-tier Render has ~5 CPU threads in the asyncio
-    # default pool, and a 60-symbol gather() saturates them — /healthz blocks
-    # waiting for the GIL, Render kills the container, restart loop. Cap at
-    # 6 concurrent so the event loop has slack and /healthz stays responsive.
-    sem = asyncio.Semaphore(6)
+    # Bounded parallelism: free-tier Render has only ~2 CPU cores and a
+    # shared GIL — every CPU spike risks /healthz timing out (5s window).
+    # 3 concurrent symbols keeps total tick time around 25s for a 25-pair
+    # sweep while leaving the event loop responsive enough for the
+    # external healthcheck + ntfy push fan-out.
+    sem = asyncio.Semaphore(3)
 
     async def _bounded(sym, alert):
         async with sem:
