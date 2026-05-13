@@ -231,6 +231,11 @@ def generate_decision(
 
     threshold = settings.min_signal_confidence
     symbol = str(snapshot.get("symbol", ""))
+    # Add threshold is set higher than fresh entry threshold: we need MORE
+    # conviction to average into an existing position than to open one. This
+    # prevents pyramiding into mediocre setups while letting strong continuation
+    # build the size.
+    add_threshold = threshold + 0.10
 
     # Exit on flipped regime while holding a position.
     if pos_qty > 0 and score < -0.20:
@@ -245,6 +250,27 @@ def generate_decision(
             action="buy", size_pct=0.05,
             stop_loss=price - 1.5 * atr, take_profit=price + 2.5 * atr,
             confidence=conf, reasoning=f"exit short: {reason_tail}",
+        )
+        return _apply_overrides(d, symbol, threshold)
+
+    # Reinforcement ADD: when an existing position is open in the same direction
+    # and the composite score is even stronger than the original entry bar, fire
+    # a same-direction signal so the executor pyramids in (capped at 2 adds in
+    # executor.MAX_PYRAMID_ADDS). The notification gets an "ADD #N to LONG …"
+    # title via the scheduler so the user knows to average into the existing
+    # position rather than open a new one.
+    if pos_qty > 0 and score >= add_threshold:
+        d = RulesDecision(
+            action="buy", size_pct=0.05,
+            stop_loss=price - 1.5 * atr, take_profit=price + 2.5 * atr,
+            confidence=conf, reasoning=f"add long: {reason_tail}",
+        )
+        return _apply_overrides(d, symbol, threshold)
+    if pos_qty < 0 and score <= -add_threshold:
+        d = RulesDecision(
+            action="sell", size_pct=0.05,
+            stop_loss=price + 1.5 * atr, take_profit=price - 2.5 * atr,
+            confidence=conf, reasoning=f"add short: {reason_tail}",
         )
         return _apply_overrides(d, symbol, threshold)
 
