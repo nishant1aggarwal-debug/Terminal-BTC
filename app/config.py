@@ -186,6 +186,17 @@ class Settings(BaseSettings):
     # Healthchecks (/healthz, /readyz) stay public regardless.
     dashboard_user: str = ""
     dashboard_pass: str = ""
+    # Public URL for the dashboard — used by push notifications so taps on
+    # phone notifications open the live dashboard. Leave blank to omit.
+    dashboard_url: str = "https://terminal-btc.onrender.com/ui/"
+
+    # Phone push notifications via ntfy.sh — install the ntfy app, subscribe
+    # to whatever topic name you put in NTFY_TOPIC, and every SIGNAL / OPEN /
+    # TP1 / TP2 / SL / CLOSE fires a push to your phone. Leave blank to disable.
+    # NTFY_SERVER defaults to the public ntfy.sh service — change only if you
+    # self-host (some users on https://github.com/binwiederhier/ntfy).
+    ntfy_topic: str = ""
+    ntfy_server: str = "https://ntfy.sh"
 
     # Daily digest email — sends an HTML P&L summary at DIGEST_HOUR_UTC if all
     # SMTP fields are set. Any missing field → job no-ops (logged, no error).

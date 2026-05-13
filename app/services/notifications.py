@@ -60,6 +60,19 @@ def fire(
         s.commit()
         s.refresh(n)
     log.info("notification_fired", kind=kind, symbol=symbol, title=title)
+
+    # Fan out to ntfy.sh push (no-op when NTFY_TOPIC isn't set). Best-effort:
+    # a phone-push failure must never block the in-DB notification.
+    try:
+        from app.services import push as _push
+        _push.push_event(
+            kind=kind, symbol=symbol, title=title, message=message,
+            action=action, price=price, sl=sl, tp1=tp1, tp2=tp2,
+            confidence=confidence, style=style,
+        )
+    except Exception as exc:
+        log.warning("push_dispatch_failed", error=str(exc))
+
     return n
 
 

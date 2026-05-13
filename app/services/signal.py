@@ -69,20 +69,28 @@ def generate(
 
     rd = rules_signal.generate_decision(snapshot, tv_alert, position)
 
-    # Regime gate: in BULL only longs fire, in BEAR only shorts; CHOP halves size.
+    # Regime weighting: real trading systems take BOTH sides, just sized
+    # smaller when they're against the dominant trend. We never block — the
+    # per-symbol composite score has already proved the setup is high
+    # conviction. The 4h regime just dials position size up or down.
+    #   BULL  — longs ×1.0, shorts ×0.6 (counter-trend allowed but smaller)
+    #   BEAR  — shorts ×1.0, longs ×0.6
+    #   CHOP  — both ×0.5 (regime uncertainty → smaller bets either side)
     current = regime.current_regime()
-    if rd.action == "buy" and current == "bear":
-        rd.reasoning = f"{rd.reasoning} | regime=bear → long demoted to hold"
-        rd.action = "hold"
-        rd.size_pct = 0.0
-    elif rd.action == "sell" and current == "bull":
-        rd.reasoning = f"{rd.reasoning} | regime=bull → short demoted to hold"
-        rd.action = "hold"
-        rd.size_pct = 0.0
-    elif rd.action in {"buy", "sell"} and current == "chop":
-        rd.reasoning = f"{rd.reasoning} | regime=chop → size halved"
-        # Halving happens in the sizing block below; flag it with a multiplier.
-        rd.size_pct *= 0.5
+    if rd.action == "buy":
+        if current == "bear":
+            rd.size_pct *= 0.6
+            rd.reasoning = f"{rd.reasoning} | regime=bear · counter-trend long, size ×0.6"
+        elif current == "chop":
+            rd.size_pct *= 0.5
+            rd.reasoning = f"{rd.reasoning} | regime=chop · long size ×0.5"
+    elif rd.action == "sell":
+        if current == "bull":
+            rd.size_pct *= 0.6
+            rd.reasoning = f"{rd.reasoning} | regime=bull · counter-trend short, size ×0.6"
+        elif current == "chop":
+            rd.size_pct *= 0.5
+            rd.reasoning = f"{rd.reasoning} | regime=chop · short size ×0.5"
 
     # Nudge confidence based on Fear & Greed extremes (no-op if F&G missing).
     fg = macro.get_latest("fear_greed")

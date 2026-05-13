@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 import asyncio
 
-from app.services import auditor, backtest, email_digest, macro, news, notifications, regime, risk
+from app.services import auditor, backtest, email_digest, macro, news, notifications, push, regime, risk
 from app.services.scheduler import tick
 
 router = APIRouter(prefix="/control", tags=["control"])
@@ -66,6 +66,14 @@ async def news_refresh() -> dict[str, Any]:
 async def digest_now() -> dict[str, Any]:
     """Send the daily digest email immediately (for testing)."""
     return await asyncio.to_thread(email_digest.send_digest)
+
+
+@router.post("/test-push")
+async def test_push() -> dict[str, Any]:
+    """Send a test notification to your phone via ntfy.sh — use this after
+    setting NTFY_TOPIC to confirm the push channel is wired correctly.
+    """
+    return await asyncio.to_thread(push.test_push)
 
 
 @router.post("/notifications/mark-read")
