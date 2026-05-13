@@ -231,11 +231,11 @@ def generate_decision(
 
     threshold = settings.min_signal_confidence
     symbol = str(snapshot.get("symbol", ""))
-    # Add threshold is set higher than fresh entry threshold: we need MORE
-    # conviction to average into an existing position than to open one. This
-    # prevents pyramiding into mediocre setups while letting strong continuation
-    # build the size.
-    add_threshold = threshold + 0.10
+    # ADD signals fire at the SAME threshold as fresh entries. If the same
+    # composite score that opens a fresh position is still firing on the next
+    # bar, the user wants that as an ADD #N (averaging in) rather than a
+    # silent hold. The executor's MAX_PYRAMID_ADDS=2 cap is the runaway guard.
+    add_threshold = threshold
 
     # Exit on flipped regime while holding a position.
     if pos_qty > 0 and score < -0.20:
