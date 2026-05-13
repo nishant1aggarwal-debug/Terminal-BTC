@@ -99,10 +99,31 @@ def signal_fired(
     symbol: str, action: str, confidence: float, entry: float,
     sl: float | None, tp1: float | None, tp2: float | None, reasoning: str,
     *, htf_agrees: bool | None = None,
+    is_add: bool = False,
+    add_index: int = 0,
+    current_qty: float = 0.0,
+    current_avg_entry: float = 0.0,
 ) -> None:
     style = _classify_style(entry, sl, htf_agrees)
     verb = "LONG" if action == "buy" else "SHORT"
-    title = f"[{style}] {verb} {symbol}"
+
+    # If a same-direction position is already open, this is an ADD signal —
+    # the user should average into the existing trade, not open a new one.
+    # We adjust the title prefix and inject current-position context into
+    # the body so the phone push leaves no ambiguity.
+    if is_add and current_qty != 0:
+        title = f"[{style}] ADD #{add_index} to {verb} {symbol}"
+        diff_pct = ((entry - current_avg_entry) / current_avg_entry * 100.0
+                    if current_avg_entry else 0.0)
+        better = "better" if (action == "buy" and diff_pct < 0) or (action == "sell" and diff_pct > 0) else "worse"
+        position_line = (
+            f"Existing qty {current_qty:+.6f} @ avg {current_avg_entry:.4f} · "
+            f"new fill {entry:.4f} ({diff_pct:+.2f}%, {better} entry)"
+        )
+    else:
+        title = f"[{style}] {verb} {symbol}"
+        position_line = None
+
     parts = [f"Entry {entry:.4f}"]
     if sl is not None:
         parts.append(f"SL {sl:.4f}")
@@ -110,7 +131,11 @@ def signal_fired(
         parts.append(f"TP1 {tp1:.4f}")
     if tp2 is not None:
         parts.append(f"TP2 {tp2:.4f}")
-    message = " · ".join(parts) + f" · conf {int(confidence * 100)}% · {reasoning}"
+    message_lines = [" · ".join(parts) + f" · conf {int(confidence * 100)}% · {reasoning}"]
+    if position_line:
+        message_lines.insert(0, position_line)
+    message = "\n".join(message_lines)
+
     fire(
         "SIGNAL", symbol, title, message,
         severity="success" if action == "buy" else "warning",

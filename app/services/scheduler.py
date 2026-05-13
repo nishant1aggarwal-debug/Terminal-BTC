@@ -123,6 +123,28 @@ async def _tick_symbol(
             htf_agrees = True
         elif decision.action == "sell" and snap_dict.get("htf_trend_down") is True:
             htf_agrees = True
+
+        # Detect whether this signal is a fresh entry or an ADD to an
+        # existing same-direction position. The user wants explicit ADD
+        # alerts ("buy more on SIREN, average down") instead of identical
+        # LONG-LONG-LONG spam they can't distinguish from fresh entries.
+        current_qty = float(position.get("qty") or 0.0)
+        current_avg = float(position.get("avg_entry") or 0.0)
+        is_same_direction = (
+            (decision.action == "buy" and current_qty > 1e-9)
+            or (decision.action == "sell" and current_qty < -1e-9)
+        )
+        is_add = is_same_direction
+        # Look up the actual add count from the persisted Position so the
+        # alert title says "ADD #1", "ADD #2", etc. matching what the
+        # executor will record. +1 because we're about to add another.
+        add_index = 0
+        if is_add:
+            from app.models import Position as _Position
+            with get_session() as _s:
+                _pos = _s.get(_Position, symbol)
+                add_index = (_pos.adds if _pos else 0) + 1
+
         notifications.signal_fired(
             symbol=symbol,
             action=decision.action,
@@ -133,6 +155,10 @@ async def _tick_symbol(
             tp2=tp2,
             reasoning=decision.reasoning,
             htf_agrees=htf_agrees,
+            is_add=is_add,
+            add_index=add_index,
+            current_qty=current_qty,
+            current_avg_entry=current_avg,
         )
 
     with get_session() as s:
