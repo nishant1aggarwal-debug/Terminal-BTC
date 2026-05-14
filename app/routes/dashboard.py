@@ -14,7 +14,7 @@ from fastapi import APIRouter, Query
 from sqlmodel import desc, select
 
 from app.config import get_settings
-from app.db import get_session
+from app.db import get_session, iso_utc
 from app.exchange import data_source
 from app.services import auditor as auditor_svc
 from app.services import backtest as backtest_svc
@@ -98,8 +98,8 @@ def _compute_overview() -> dict[str, Any]:
     pnl_total = equity - settings.paper_starting_equity_usdt
     pnl_pct = (pnl_total / settings.paper_starting_equity_usdt * 100.0) if settings.paper_starting_equity_usdt else 0.0
 
-    last_trade_ts = trades[0].ts.isoformat() if trades else None
-    last_decision_ts = decisions[0].ts.isoformat() if decisions else None
+    last_trade_ts = iso_utc(trades[0].ts) if trades else None
+    last_decision_ts = iso_utc(decisions[0].ts) if decisions else None
 
     return {
         "paper_mode": settings.paper_mode,
@@ -134,7 +134,7 @@ def _compute_overview() -> dict[str, Any]:
         "fear_greed": {
             "value": fg.value,
             "classification": fg.classification,
-            "fetched_at": fg.fetched_at.isoformat(),
+            "fetched_at": iso_utc(fg.fetched_at),
         } if fg else None,
         "scheduler": scheduler_svc.heartbeat(),
         "backtest": backtest_svc.state(),
@@ -353,7 +353,7 @@ async def positions() -> list[dict[str, Any]]:
             "notional_usdt": notional,
             "unrealized_pnl_usdt": upnl,
             "unrealized_pnl_pct": pct,
-            "updated_at": p.updated_at.isoformat(),
+            "updated_at": iso_utc(p.updated_at),
             # Multi-target exit plan — these power the "how close to TP1" badge.
             "sl_price": p.sl_price,
             "tp1_price": p.tp1_price,
@@ -363,7 +363,7 @@ async def positions() -> list[dict[str, Any]]:
             "trailing_high_water": p.trailing_high_water,
             "adds": p.adds,
             "initial_qty": p.initial_qty,
-            "opened_at": p.opened_at.isoformat() if p.opened_at else None,
+            "opened_at": iso_utc(p.opened_at),
             "dist_to_sl_pct": _pct_to(p.sl_price),
             "dist_to_tp1_pct": _pct_to(p.tp1_price),
             "dist_to_tp2_pct": _pct_to(p.tp2_price),
@@ -379,7 +379,7 @@ async def trades(limit: int = Query(50, ge=1, le=500)) -> list[dict[str, Any]]:
     return [
         {
             "id": t.id,
-            "ts": t.ts.isoformat(),
+            "ts": iso_utc(t.ts),
             "symbol": t.symbol,
             "side": t.side,
             "type": t.type,
@@ -407,7 +407,7 @@ async def decisions(limit: int = Query(50, ge=1, le=500)) -> list[dict[str, Any]
             pass
         out.append({
             "id": d.id,
-            "ts": d.ts.isoformat(),
+            "ts": iso_utc(d.ts),
             "source": d.source,
             "symbol": d.symbol,
             "action": d.action,
@@ -509,8 +509,8 @@ async def closed_trades(limit: int = Query(50, ge=1, le=500)) -> list[dict[str, 
     return [
         {
             "id": t.id,
-            "closed_at": t.closed_at.isoformat(),
-            "entry_ts": t.entry_ts.isoformat(),
+            "closed_at": iso_utc(t.closed_at),
+            "entry_ts": iso_utc(t.entry_ts),
             "symbol": t.symbol,
             "side": t.side,
             "qty": t.qty,
@@ -550,7 +550,7 @@ async def latest_signals(limit: int = Query(20, ge=1, le=100)) -> list[dict[str,
             pass
         out.append({
             "id": d.id,
-            "ts": d.ts.isoformat(),
+            "ts": iso_utc(d.ts),
             "symbol": d.symbol,
             "side": "BUY" if d.action == "buy" else "SELL",
             "entry_price": last_close,
@@ -579,7 +579,7 @@ async def macro_state() -> dict[str, Any]:
             "value": r.value,
             "classification": r.classification,
             "source": r.source,
-            "fetched_at": r.fetched_at.isoformat(),
+            "fetched_at": iso_utc(r.fetched_at),
         }
     return out
 
@@ -603,7 +603,7 @@ async def backtest_latest() -> dict[str, Any]:
     latest_generated = max((r.generated_at for r in reports), default=None)
 
     return {
-        "generated_at": latest_generated.isoformat() if latest_generated else None,
+        "generated_at": iso_utc(latest_generated),
         "symbols_covered": len(reports),
         "total_trades": total_trades,
         "total_wins": total_wins,
@@ -615,7 +615,7 @@ async def backtest_latest() -> dict[str, Any]:
             {
                 "symbol": r.symbol,
                 "timeframe": r.timeframe,
-                "generated_at": r.generated_at.isoformat(),
+                "generated_at": iso_utc(r.generated_at),
                 "candles": r.candles,
                 "trades": r.trades,
                 "wins": r.wins,
@@ -631,8 +631,8 @@ async def backtest_latest() -> dict[str, Any]:
                 "oos_win_rate_pct": r.oos_win_rate_pct,
                 "oos_profit_factor": r.oos_profit_factor,
                 "oos_net_pnl_pct": r.oos_net_pnl_pct,
-                "period_start": r.period_start.isoformat() if r.period_start else None,
-                "period_end": r.period_end.isoformat() if r.period_end else None,
+                "period_start": iso_utc(r.period_start),
+                "period_end": iso_utc(r.period_end),
             }
             for r in sorted(reports, key=lambda r: r.net_pnl_pct, reverse=True)
         ],
@@ -651,14 +651,14 @@ async def equity(days: int = Query(30, ge=1, le=365)) -> dict[str, Any]:
 
     equity_val = settings.paper_starting_equity_usdt
     points: list[dict[str, Any]] = [{
-        "ts": cutoff.isoformat(),
+        "ts": iso_utc(cutoff),
         "equity": equity_val,
         "event": "start",
     }]
     for t in rows:
         equity_val += t.net_pnl_usdt
         points.append({
-            "ts": t.closed_at.isoformat(),
+            "ts": iso_utc(t.closed_at),
             "equity": equity_val,
             "event": f"close {t.symbol} {t.side} {'+' if t.net_pnl_usdt >= 0 else ''}{t.net_pnl_usdt:.2f}",
         })

@@ -22,7 +22,7 @@ from typing import Any
 
 from sqlmodel import desc, select
 
-from app.db import get_session
+from app.db import get_session, iso_utc
 from app.logging_setup import get_logger
 from app.models import Notification
 
@@ -192,7 +192,7 @@ def list_recent(limit: int = 50, unread_only: bool = False) -> list[dict[str, An
     return [
         {
             "id": n.id,
-            "ts": n.ts.isoformat(),
+            "ts": iso_utc(n.ts),
             "kind": n.kind,
             "severity": n.severity,
             "symbol": n.symbol,

@@ -1,10 +1,31 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.config import get_settings
+
+
+def iso_utc(dt: datetime | None) -> str | None:
+    """Serialize a datetime to ISO-8601 with an explicit UTC marker.
+
+    SQLite (and our DB layer in general) stores datetimes without tz info,
+    so a naive ``datetime`` returned from the DB is actually UTC under the
+    hood. ``.isoformat()`` alone produces a string with no offset, which
+    JavaScript's ``new Date()`` then interprets as LOCAL time — shifting
+    every dashboard timestamp by the viewer's UTC offset. Force a ``+00:00``
+    suffix so the client always converts correctly.
+
+    Returns None when ``dt`` is None — callers that want a value can
+    coalesce; we don't fabricate a fallback.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
 
 _settings = get_settings()
 

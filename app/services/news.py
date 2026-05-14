@@ -25,7 +25,7 @@ from typing import Any
 
 from sqlmodel import desc, select
 
-from app.db import get_session
+from app.db import get_session, iso_utc
 from app.logging_setup import get_logger
 from app.models import NewsEvent
 
@@ -140,7 +140,7 @@ def recent_news(limit: int = 30) -> list[dict[str, Any]]:
     return [
         {
             "id": r.id,
-            "ts": r.ts.isoformat(),
+            "ts": iso_utc(r.ts),
             "title": r.title,
             "url": r.url,
             "currencies": r.currencies.split(",") if r.currencies else [],

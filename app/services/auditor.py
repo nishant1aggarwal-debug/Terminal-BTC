@@ -30,7 +30,7 @@ from typing import Any
 from sqlmodel import desc, select
 
 from app.config import get_settings
-from app.db import get_session
+from app.db import get_session, iso_utc
 from app.logging_setup import get_logger
 from app.models import (
     AuditReport,
@@ -592,8 +592,8 @@ def active_overrides(
             "param_key": o.param_key,
             "param_value": o.param_value,
             "reason": o.reason,
-            "created_at": o.created_at.isoformat(),
-            "expires_at": o.expires_at.isoformat(),
+            "created_at": iso_utc(o.created_at),
+            "expires_at": iso_utc(o.expires_at),
             "source": o.source,
             "audit_id": o.audit_id,
             "regime": o.regime,
@@ -629,7 +629,7 @@ def recent_audits(limit: int = 20) -> list[dict[str, Any]]:
     return [
         {
             "id": a.id,
-            "generated_at": a.generated_at.isoformat(),
+            "generated_at": iso_utc(a.generated_at),
             "source": a.source,
             "window_trades": a.window_trades,
             "summary": a.summary,

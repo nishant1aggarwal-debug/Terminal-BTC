@@ -62,39 +62,52 @@ const fmtPrice = (n) => {
   const digits = n >= 100 ? 2 : n >= 1 ? 4 : 6;
   return n.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 };
+// IST (Asia/Kolkata, UTC+5:30) is the canonical dashboard timezone — pinned
+// explicitly so the same display works from any device regardless of the
+// browser's locale. Server stamps every timestamp with explicit UTC
+// (iso_utc in app/db.py adds +00:00), so JS converts correctly on its own.
+const TZ = "Asia/Kolkata";
+
+// Full date + 12-hour clock — "14 May, 08:28:18 PM". Use for headers /
+// the dashboard's "last updated" labels where the full context is welcome.
 const fmtTime = (iso) => {
   if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  return new Date(iso).toLocaleString("en-IN", {
+    timeZone: TZ, day: "2-digit", month: "short",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
   });
 };
 
-// Just the clock part — "14:58:18". Use when you want compact time without
-// the month/day prefix (e.g. inside a table row where the date is implied).
+// 12-hour clock with date inline — "08:28:18 PM · 14 May". The canonical
+// per-row stamp; compact enough for a table cell, complete enough that
+// you never have to guess which day a 2 AM event landed on.
 const fmtClock = (iso) => {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleTimeString(undefined, {
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  const t = d.toLocaleTimeString("en-IN", {
+    timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
   });
+  const day = d.toLocaleDateString("en-IN", {
+    timeZone: TZ, day: "2-digit", month: "short",
+  });
+  return `${t} · ${day}`;
 };
 
-// Relative time: "5s", "12m", "3h", "2d". Cheap to compute, refreshes on
-// every render (10 s dashboard poll), so values stay current.
+// Relative time: "5s ago", "12m ago", "3h ago", "2d ago". Refreshes on
+// every dashboard render (10 s) so values stay current without re-renders.
 const fmtAge = (iso) => {
   if (!iso) return "";
   const secs = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
-  if (secs < 0) return "0s";
+  if (secs < 0) return "0s ago";
   if (secs < 60) return `${secs}s ago`;
   if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
   if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
   return `${Math.round(secs / 86400)}d ago`;
 };
 
-// Clock + age in one render: "14:58:18 · 5m ago". The canonical timestamp
-// format across the dashboard so every row tells you both "what time
-// exactly" and "how long ago".
+// "08:28:18 PM · 14 May · 5m ago" — clock, date, and relative age all in
+// one render. Every event row uses this so you can see at a glance "when
+// exactly" and "how long ago" without parsing prose.
 const fmtTimeWithAge = (iso) => {
   if (!iso) return "—";
   return `${fmtClock(iso)} <span class="muted">· ${fmtAge(iso)}</span>`;
