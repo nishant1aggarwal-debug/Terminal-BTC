@@ -120,12 +120,13 @@ class Settings(BaseSettings):
     # USDT pairs. Set true when DATA_SOURCE is a wide-universe exchange (mexc,
     # bitget, gateio) and you want 50-200+ pairs instead of the hardcoded 14.
     auto_discover_symbols: bool = False
-    # Top N highest-volume USDT pairs to trade. 100 covers essentially every
-    # liquid USDT perp on MEXC (the long tail past ~150 is mostly zombies).
-    # Combined with auto_discover_min_quote_volume_usdt this auto-prunes — if
-    # only 80 pairs clear the volume floor on a quiet day, we trade 80; on a
-    # high-volume day we get the full 100.
-    auto_discover_top_n: int = 100
+    # Top N highest-volume USDT pairs to trade. 60 fits comfortably in
+    # Render Starter's 512 MB RAM budget while still being 2.4× the prior
+    # universe. Combined with the $5M/day floor, we get every meaningfully
+    # liquid USDT perp; the long tail past ~80 pairs is mostly zombies that
+    # wouldn't pass the volume floor anyway. Bump to 100-150 only if you
+    # upgrade to Standard ($25/mo, 2 GB RAM) — top-100 OOM-killed on Starter.
+    auto_discover_top_n: int = 60
     # Minimum 24h quote volume (USDT) for a pair to be eligible. $5M/day
     # filters out illiquid junk where slippage > our profit target. MEXC's
     # actually-tradable USDT perp universe sits around 100-150 pairs above

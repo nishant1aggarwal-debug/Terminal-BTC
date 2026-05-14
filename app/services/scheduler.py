@@ -262,10 +262,13 @@ async def tick(
     else:
         symbols_to_run = data_source.filter_supported(settings.symbols)
 
-    # Bounded parallelism. Render Starter has dedicated CPU (no noisy-neighbor
-    # contention), so we can push to 6 concurrent symbols — total tick time
-    # for a 25-pair sweep drops to ~12s, well inside the healthcheck window.
-    sem = asyncio.Semaphore(6)
+    # Bounded parallelism. Starter has 0.5 vCPU + 512 MB RAM. Each in-flight
+    # symbol is a pandas DataFrame for OHLCV + HTF + 9 indicator columns —
+    # ~30 MB resident at peak. 4 concurrent keeps total ticks well inside
+    # the 5 s /healthz window and stays under the OOM ceiling on Starter.
+    # Bump to 6+ only on Standard or higher (top-100 universe + Semaphore(6)
+    # killed Starter with exit-137 OOMs).
+    sem = asyncio.Semaphore(4)
 
     async def _bounded(sym, alert):
         async with sem:
