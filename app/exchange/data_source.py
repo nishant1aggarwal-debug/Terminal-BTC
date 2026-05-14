@@ -252,21 +252,36 @@ def fetch_order_book(symbol: str, limit: int = 5) -> dict[str, Any]:
 
 
 @_with_retry
+# Symbols that have been observed to fail fetch_ticker — we skip them for
+# the rest of this process lifetime so the dashboard's /api/markets poll
+# doesn't spend ~3 s per dead symbol retrying. Re-populated from scratch
+# every process boot.
+_BAD_TICKER_SYMBOLS: set[str] = set()
+
+
 def fetch_tickers(symbols: list[str] | None = None) -> dict[str, dict[str, Any]]:
     """Batch-fetch last price / 24h change / volume for many symbols in one call.
 
     Exchanges that don't support batched tickers (Kraken sometimes) fall
     back to per-symbol fetch_ticker(). Returns {symbol: ticker_dict}.
+
+    Known-bad symbols (those that already failed fetch_ticker once in this
+    process) are skipped silently. Without this, /api/markets ate ~3 s per
+    phantom symbol × ~3 phantoms = ~10 s of event-loop block per poll,
+    timing out Render's /healthz.
     """
     client = get_client()
+    requested = list(symbols or [])
+    eligible = [s for s in requested if s not in _BAD_TICKER_SYMBOLS]
     try:
-        return client.fetch_tickers(symbols)
+        return client.fetch_tickers(eligible) if eligible else {}
     except Exception as exc:
         log.warning("fetch_tickers_batch_failed_falling_back", error=str(exc))
         out: dict[str, dict[str, Any]] = {}
-        for sym in symbols or []:
+        for sym in eligible:
             try:
                 out[sym] = client.fetch_ticker(sym)
             except Exception as sub_exc:
                 log.warning("fetch_ticker_failed", symbol=sym, error=str(sub_exc))
+                _BAD_TICKER_SYMBOLS.add(sym)  # never retry this one again
         return out

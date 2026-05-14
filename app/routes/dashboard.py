@@ -180,7 +180,12 @@ async def markets() -> list[dict[str, Any]]:
     settings = get_settings()
     symbols = data_source.filter_supported(settings.symbols)
     try:
-        tickers = data_source.fetch_tickers(symbols)
+        # Run the (potentially slow / network-heavy) ticker fetch in a worker
+        # thread so the FastAPI event loop stays free for /healthz. Without
+        # this, a single phantom MEXC symbol's retry backoff (up to 3 s)
+        # could freeze the loop long enough to fail Render's 5 s healthcheck.
+        import asyncio
+        tickers = await asyncio.to_thread(data_source.fetch_tickers, symbols)
     except Exception as exc:
         return [{"symbol": s, "error": str(exc)} for s in symbols]
 
