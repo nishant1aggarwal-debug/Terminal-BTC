@@ -34,6 +34,30 @@ function _chartSourceFor(symbol) {
   return _TV_CHART_OVERRIDES[symbol] || _TV_CHART_SOURCES[0];
 }
 
+// Default studies layered onto every TradingView chart. These are the SAME
+// indicators the bot's rules engine uses to score signals — so when you
+// look at the chart, you see exactly what the bot sees — plus VWAP, the
+// single most-watched institutional reference (real desks execute against
+// VWAP every day; it's the benchmark for "fair price"). No magic indicators,
+// no "whale signals" — just the bot's brain on the screen.
+//
+//   * EMA 20 / 50 / 200 — the bot's regime gate (bull stack = +0.30 score)
+//   * RSI(14)            — momentum oscillator, the bot's RSI contribution
+//   * MACD(12,26,9)      — trend strength, the bot's MACD contribution
+//   * Bollinger Bands    — volatility envelope; bb_pct contribution
+//   * Stochastic RSI     — early momentum reversals, the bot's stoch contribution
+//   * VWAP               — institutional benchmark, watch for confluence
+//   * Volume             — confirms moves; thin volume = lower confidence
+const _TV_STUDIES = [
+  "MAExp@tv-basicstudies",        // EMA — defaults to 9; we override below if widget allows
+  "RSI@tv-basicstudies",          // RSI(14)
+  "MACD@tv-basicstudies",         // MACD(12,26,9)
+  "BB@tv-basicstudies",           // Bollinger Bands (20, 2)
+  "StochasticRSI@tv-basicstudies",
+  "VWAP@tv-basicstudies",         // Volume Weighted Average Price
+  "Volume@tv-basicstudies",
+];
+
 function mountTradingView(symbol, interval, _ignoredSource) {
   const host = document.getElementById("tv-chart");
   if (!host) return;
@@ -41,7 +65,15 @@ function mountTradingView(symbol, interval, _ignoredSource) {
   const source = _chartSourceFor(symbol);
   const iframe = document.createElement("iframe");
   const sym = encodeURIComponent(tvPair(symbol, source));
-  iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tv&symbol=${sym}&interval=${interval}&theme=dark&style=1&timezone=Etc/UTC&withdateranges=1&hide_side_toolbar=0&allow_symbol_change=1&save_image=1`;
+  const studies = _TV_STUDIES.map(encodeURIComponent).join("%2C");
+  iframe.src =
+    "https://s.tradingview.com/widgetembed/" +
+    `?frameElementId=tv&symbol=${sym}` +
+    `&interval=${interval}` +
+    "&theme=dark&style=1&timezone=Etc/UTC" +
+    "&withdateranges=1&hide_side_toolbar=0" +
+    "&allow_symbol_change=1&save_image=1" +
+    `&studies=${studies}`;
   iframe.style.cssText = "width:100%; height:100%; border:0;";
   iframe.allow = "fullscreen";
   host.appendChild(iframe);
