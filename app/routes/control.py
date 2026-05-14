@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 import asyncio
 
-from app.services import auditor, backtest, email_digest, macro, news, notifications, push, regime, risk
+from app.services import auditor, backtest, email_digest, macro, news, notifications, optimizer, push, regime, risk
 from app.services.scheduler import tick
 
 router = APIRouter(prefix="/control", tags=["control"])
@@ -95,6 +95,33 @@ async def audit_now() -> dict[str, Any]:
             logging.getLogger(__name__).exception("auditor_background_failed: %s", exc)
     asyncio.create_task(_runner())
     return {"ok": True, "message": "audit started in background"}
+
+
+@router.post("/optimize-now")
+async def optimize_now() -> dict[str, Any]:
+    """Run the walk-forward parameter optimizer in the background.
+
+    Replays the rules engine across a small grid of (confidence_adj,
+    size_multiplier) values for the top-N most-recently-backtested symbols
+    and writes the winners as week-long StrategyOverrides.
+    """
+    from app.config import get_settings
+    settings = get_settings()
+
+    async def _runner():
+        try:
+            await asyncio.to_thread(
+                optimizer.run_optimizer,
+                settings.optimizer_max_symbols,
+                settings.optimizer_override_hours,
+            )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception(
+                "optimizer_background_failed: %s", exc,
+            )
+    asyncio.create_task(_runner())
+    return {"ok": True, "message": "optimizer started in background"}
 
 
 @router.post("/backtest-now")

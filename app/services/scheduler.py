@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,7 +12,7 @@ from app.db import get_session
 from app.exchange import data_source
 from app.logging_setup import get_logger
 from app.models import Decision, Position
-from app.services import auditor, backtest, email_digest, executor, funding, macro, news, notifications, regime, signal, targets
+from app.services import auditor, backtest, email_digest, executor, funding, macro, news, notifications, optimizer, regime, signal, targets
 from app.services.market_data import get_snapshot
 
 log = get_logger(__name__)
@@ -26,7 +27,6 @@ _last_tick_summary: dict[str, Any] | None = None
 
 
 def heartbeat() -> dict[str, Any]:
-    from datetime import datetime, timezone
     settings = get_settings()
     next_at = None
     if _scheduler is not None:
@@ -172,11 +172,14 @@ async def _tick_symbol(
     if decision.action == "hold":
         # Keep ~1 in 10 holds (deterministic by minute so each symbol's holds
         # cluster on the same ticks rather than random spread).
-        from datetime import datetime as _dt
-        should_persist = (_dt.now(timezone.utc).minute // 6) % 2 == 0
+        should_persist = (datetime.now(timezone.utc).minute // 6) % 2 == 0
 
     decision_id: int | None = None
     if should_persist:
+        contribs_json = (
+            json.dumps(decision.contributions, default=str)
+            if decision.contributions else None
+        )
         with get_session() as s:
             row = Decision(
                 source=source,
@@ -190,6 +193,9 @@ async def _tick_symbol(
                 confidence=decision.confidence,
                 reasoning=f"[{decision.backend}] {decision.reasoning}",
                 claude_usd_cost=decision.usd_cost,
+                indicator_contributions_json=contribs_json,
+                regime=decision.regime,
+                dominant_indicator=decision.dominant_indicator,
             )
             s.add(row)
             s.commit()
@@ -205,8 +211,6 @@ async def _tick_symbol(
             "status": "hold",
             "message": "hold (not persisted)",
         }
-        s.refresh(row)
-        decision_id = row.id
 
     result = await asyncio.to_thread(
         executor.execute,
@@ -245,7 +249,6 @@ async def tick(
     a scheduler tick sweeps every configured symbol serially.
     """
     global _last_tick_started_at, _last_tick_finished_at, _last_tick_summary
-    from datetime import datetime, timezone
     _last_tick_started_at = datetime.now(timezone.utc).isoformat()
 
     settings = get_settings()
@@ -351,6 +354,19 @@ async def _auditor_job() -> None:
     await asyncio.to_thread(auditor.run_audit)
 
 
+async def _optimizer_job() -> None:
+    """Weekly walk-forward parameter optimizer — finds the best
+    confidence_adj / size_multiplier per symbol by replaying the rules engine
+    on different parameter grids and picking the winner by OOS PF×sqrt(trades).
+    """
+    settings = get_settings()
+    await asyncio.to_thread(
+        optimizer.run_optimizer,
+        settings.optimizer_max_symbols,
+        settings.optimizer_override_hours,
+    )
+
+
 def start() -> None:
     global _scheduler
     if _scheduler is not None:
@@ -381,6 +397,15 @@ def start() -> None:
     sched.add_job(
         _auditor_job, "cron", hour=settings.auditor_hour_utc, minute=0,
         id="auditor", max_instances=1,
+    )
+    # Weekly walk-forward parameter optimizer. Runs Sundays after the
+    # auditor (so the auditor's regime/indicator overrides are already in
+    # place when the optimizer chooses its own confidence_adj/size_multiplier).
+    sched.add_job(
+        _optimizer_job, "cron",
+        day_of_week=settings.optimizer_day_of_week,
+        hour=settings.optimizer_hour_utc, minute=15,
+        id="optimizer", max_instances=1,
     )
     # Daily P&L digest email at DIGEST_HOUR_UTC:DIGEST_MINUTE_UTC
     # (no-op if SMTP env vars unset).

@@ -29,19 +29,23 @@ engine = create_engine(_settings.database_url, echo=False, **engine_kwargs)
 
 
 def _migrate_missing_columns() -> None:
-    """Postgres-only: add any model columns that aren't on the live tables yet.
+    """Add any model columns that aren't on the live tables yet.
 
     SQLModel.metadata.create_all() creates new TABLES but never adds columns to
-    pre-existing ones. When we add a field to a model after a deploy, Postgres
-    keeps the old schema and the next SELECT raises UndefinedColumn. SQLite
-    tests always start fresh so this isn't visible locally.
+    pre-existing ones. When we add a field to a model after a deploy, the
+    database keeps the old schema and the next SELECT raises (UndefinedColumn
+    on Postgres, OperationalError on SQLite).
 
-    We introspect the model's column list vs information_schema and emit
-    ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` for the gap. Idempotent and
-    cheap — runs on every boot.
+    We introspect the model's column list vs the live schema and emit
+    ``ALTER TABLE ... ADD COLUMN`` for the gap. Runs on every boot — idempotent
+    because we filter to the actual missing columns first. Postgres gets the
+    extra ``IF NOT EXISTS`` belt-and-braces; SQLite doesn't support that clause
+    so we rely on the diff to avoid duplicate ADDs.
     """
-    if not engine.url.drivername.startswith("postgresql"):
+    dialect = engine.url.drivername
+    if not (dialect.startswith("postgresql") or dialect.startswith("sqlite")):
         return
+    use_if_not_exists = dialect.startswith("postgresql")
     from sqlalchemy import inspect, text
     insp = inspect(engine)
     existing_tables = set(insp.get_table_names())
@@ -54,9 +58,12 @@ def _migrate_missing_columns() -> None:
                 continue
             try:
                 type_sql = col.type.compile(engine.dialect)
+                guard = "IF NOT EXISTS " if use_if_not_exists else ""
+                # SQLite needs unquoted identifiers for some types; double-
+                # quotes are fine in both dialects we target.
                 ddl = (
                     f'ALTER TABLE "{table.name}" '
-                    f'ADD COLUMN IF NOT EXISTS "{col.name}" {type_sql}'
+                    f'ADD COLUMN {guard}"{col.name}" {type_sql}'
                 )
                 with engine.begin() as conn:
                     conn.execute(text(ddl))

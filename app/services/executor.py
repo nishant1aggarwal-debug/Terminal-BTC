@@ -12,7 +12,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.exchange import binance_client, bybit_client
 from app.logging_setup import get_logger
-from app.models import ClosedTrade, DailyPnL, Position, Trade
+from app.models import ClosedTrade, DailyPnL, Decision, Position, Trade
 from app.services import notifications, risk, targets
 
 
@@ -144,6 +144,19 @@ def _update_position(
             pnl_pct = (net / entry_notional * 100.0) if entry_notional else 0.0
             opened_at_aware = _as_utc(pos.opened_at) or now
             hold_sec = int((now - opened_at_aware).total_seconds())
+            # Pull the entry decision's self-learning telemetry so the auditor
+            # can attribute this realized PnL to the right indicator + regime
+            # at the time the trade was opened (NOT closed — closing context is
+            # noise for per-indicator learning).
+            entry_contribs_json: str | None = None
+            entry_regime: str | None = None
+            entry_dom: str | None = None
+            if pos.opened_decision_id is not None:
+                entry_dec = s.get(Decision, pos.opened_decision_id)
+                if entry_dec is not None:
+                    entry_contribs_json = entry_dec.indicator_contributions_json
+                    entry_regime = entry_dec.regime
+                    entry_dom = entry_dec.dominant_indicator
             closed = ClosedTrade(
                 closed_at=now,
                 symbol=symbol,
@@ -160,6 +173,9 @@ def _update_position(
                 entry_decision_id=pos.opened_decision_id,
                 exit_decision_id=decision_id,
                 entry_confidence=pos.opened_confidence,
+                entry_contributions_json=entry_contribs_json,
+                entry_regime=entry_regime,
+                entry_dominant_indicator=entry_dom,
             )
             s.add(closed)
 

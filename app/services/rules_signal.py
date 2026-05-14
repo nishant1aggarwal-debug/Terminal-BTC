@@ -19,12 +19,17 @@ Indicators and their contribution (all in [-1, +1], summed then clamped):
                    that, chop — we return hold.
   * Fear & Greed — applied in signal.py after the fact (0.75..1.15 multiplier).
 
+Self-learning: each indicator's raw contribution is multiplied by a
+per-indicator weight read from the override map (``weight_ema``,
+``weight_macd``, etc.). Default weight is 1.0; auditor lowers the weight
+on indicators that misfire in the recent window.
+
 SL = 1.5 * ATR, TP = 2.5 * ATR (same as before). Size is 5% of equity, which
 risk.py clamps to MAX_POSITION_USDT downstream.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import get_settings
@@ -33,21 +38,27 @@ from app.logging_setup import get_logger
 log = get_logger(__name__)
 
 
+_INDICATOR_NAMES = ("ema", "macd", "rsi", "stoch_rsi", "bb")
+
+
 def _apply_overrides(decision: "RulesDecision", symbol: str, threshold: float) -> "RulesDecision":
     """Consult the strategy auditor's active overrides for this symbol and adjust.
 
-    Four override types we honour:
+    Honoured override types:
       * disable_long / disable_short — flip the action to hold.
       * size_multiplier — scale the size_pct (clamped 0.25..1.75).
       * confidence_adj — shift the firing threshold up/down for this symbol.
         A positive value means "tighter" — if the resulting score no longer
         clears the adjusted threshold, we demote to hold.
+
+    (weight_* overrides are applied BEFORE scoring, inside generate_decision,
+    so this function doesn't see them.)
     """
     # Lazy import avoids auditor→rules_signal circular.
-    from app.services import auditor
+    from app.services import auditor, regime as _regime
 
     try:
-        overrides = auditor.override_map(symbol)
+        overrides = auditor.override_map(symbol, regime=_regime.current_regime())
     except Exception as exc:
         log.warning("override_lookup_failed", symbol=symbol, error=str(exc))
         return decision
@@ -110,6 +121,12 @@ class RulesDecision:
     reasoning: str
     usd_cost: float = 0.0
     raw_usage: dict[str, int] | None = None
+    # Self-learning telemetry — auditor reads these off the persisted Decision
+    # row to compute per-indicator + per-regime win rates and write adaptive
+    # overrides.
+    contributions: dict[str, float] = field(default_factory=dict)
+    dominant_indicator: str | None = None
+    regime: str | None = None
 
 
 def _score_ema(s: dict[str, Any]) -> float:
@@ -165,6 +182,51 @@ def _score_bb(s: dict[str, Any]) -> float:
     return 0.0
 
 
+def _fetch_weights(symbol: str) -> dict[str, float]:
+    """Pull per-indicator weight overrides for this symbol (regime-filtered).
+
+    Defaults to 1.0 for every indicator. Auditor writes weight_<name>=0.5 to
+    halve an indicator's vote when it's been misfiring lately.
+    """
+    from app.services import auditor, regime as _regime
+    try:
+        overrides = auditor.override_map(symbol, regime=_regime.current_regime())
+    except Exception:
+        return {name: 1.0 for name in _INDICATOR_NAMES}
+    weights: dict[str, float] = {}
+    for name in _INDICATOR_NAMES:
+        raw = overrides.get(f"weight_{name}")
+        if raw is None:
+            weights[name] = 1.0
+            continue
+        try:
+            weights[name] = max(0.0, min(2.0, float(raw)))
+        except ValueError:
+            weights[name] = 1.0
+    return weights
+
+
+def _compute_contributions(
+    snapshot: dict[str, Any], weights: dict[str, float]
+) -> dict[str, float]:
+    """Per-indicator signed contribution AFTER weight multiplier."""
+    return {
+        "ema": _score_ema(snapshot) * weights.get("ema", 1.0),
+        "macd": _score_macd(snapshot) * weights.get("macd", 1.0),
+        "rsi": _score_rsi(snapshot) * weights.get("rsi", 1.0),
+        "stoch_rsi": _score_stoch_rsi(snapshot) * weights.get("stoch_rsi", 1.0),
+        "bb": _score_bb(snapshot) * weights.get("bb", 1.0),
+    }
+
+
+def _dominant_indicator(contribs: dict[str, float]) -> str | None:
+    """Largest absolute contributor — the one the auditor will blame/credit."""
+    if not contribs:
+        return None
+    name, val = max(contribs.items(), key=lambda kv: abs(kv[1]))
+    return name if abs(val) > 1e-9 else None
+
+
 def generate_decision(
     snapshot: dict[str, Any],
     tv_alert: dict[str, Any] | None = None,
@@ -175,8 +237,14 @@ def generate_decision(
     atr = float(snapshot["atr_14"])
     spread = float(snapshot.get("spread_bps", 0.0))
     adx = float(snapshot.get("adx_14", 0.0))
+    symbol = str(snapshot.get("symbol", ""))
 
     pos_qty = float((position or {}).get("qty", 0.0))
+
+    # Resolve current market regime now so it lands on every Decision row
+    # (including holds, when sampled).
+    from app.services import regime as _regime
+    current_regime = _regime.current_regime()
 
     # Spread filter scales with the profit target. With min_tp2_pct = 5%, a
     # round-trip spread cost up to ~4% of the target is acceptable — that lets
@@ -189,11 +257,13 @@ def generate_decision(
             action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
             confidence=0.20,
             reasoning=f"hold: wide spread {spread:.1f}bps > {max_spread_bps:.0f}bps cap",
+            regime=current_regime,
         )
     if atr <= 0:
         return RulesDecision(
             action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
             confidence=0.0, reasoning="hold: no ATR",
+            regime=current_regime,
         )
     # ADX trend-strength gate — block new entries in choppy markets.
     # Exits still fire (see below), to get us out of a trade that's losing momentum.
@@ -202,55 +272,54 @@ def generate_decision(
             action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
             confidence=0.30,
             reasoning=f"hold: ADX {adx:.1f} < 20 (choppy)",
+            regime=current_regime,
         )
 
+    # Per-indicator weights (regime-filtered overrides).
+    weights = _fetch_weights(symbol)
+    contribs = _compute_contributions(snapshot, weights)
+    dominant = _dominant_indicator(contribs)
+
     # Composite score in [-1, +1]. Positive = bullish, negative = bearish.
-    score = (
-        _score_ema(snapshot)
-        + _score_macd(snapshot)
-        + _score_rsi(snapshot)
-        + _score_stoch_rsi(snapshot)
-        + _score_bb(snapshot)
-    )
+    score = sum(contribs.values())
     score = max(-1.0, min(1.0, score))
     conf = round(min(abs(score) + 0.05, 1.0), 3)  # small floor so it's never 0
 
     # Build a compact reasoning string listing the active contributors.
-    contribs = []
-    ema_s = _score_ema(snapshot)
-    if ema_s: contribs.append(f"EMA {ema_s:+.2f}")
-    macd_s = _score_macd(snapshot)
-    if abs(macd_s) > 0.01: contribs.append(f"MACD {macd_s:+.2f}")
-    rsi_s = _score_rsi(snapshot)
-    if rsi_s: contribs.append(f"RSI {rsi_s:+.2f}")
-    stoch_s = _score_stoch_rsi(snapshot)
-    if abs(stoch_s) > 0.01: contribs.append(f"StochRSI {stoch_s:+.2f}")
-    bb_s = _score_bb(snapshot)
-    if bb_s: contribs.append(f"BB {bb_s:+.2f}")
-    reason_tail = f"score={score:+.2f} [{' · '.join(contribs) or 'flat'}] ADX={adx:.0f}"
+    # Also surface non-unit weights so the user sees the auditor's tweaks.
+    contrib_strs: list[str] = []
+    for name, val in contribs.items():
+        if abs(val) < 0.01:
+            continue
+        w = weights.get(name, 1.0)
+        tag = f"{name.upper()} {val:+.2f}"
+        if abs(w - 1.0) > 1e-6:
+            tag += f"×{w:.2f}"
+        contrib_strs.append(tag)
+    reason_tail = f"score={score:+.2f} [{' · '.join(contrib_strs) or 'flat'}] ADX={adx:.0f}"
 
     threshold = settings.min_signal_confidence
-    symbol = str(snapshot.get("symbol", ""))
     # ADD signals fire at the SAME threshold as fresh entries. If the same
     # composite score that opens a fresh position is still firing on the next
     # bar, the user wants that as an ADD #N (averaging in) rather than a
     # silent hold. The executor's MAX_PYRAMID_ADDS=2 cap is the runaway guard.
     add_threshold = threshold
 
+    def _make(action: str, sl: float, tp: float, why: str) -> RulesDecision:
+        return RulesDecision(
+            action=action, size_pct=0.05,
+            stop_loss=sl, take_profit=tp,
+            confidence=conf, reasoning=f"{why}: {reason_tail}",
+            contributions=contribs, dominant_indicator=dominant,
+            regime=current_regime,
+        )
+
     # Exit on flipped regime while holding a position.
     if pos_qty > 0 and score < -0.20:
-        d = RulesDecision(
-            action="sell", size_pct=0.05,
-            stop_loss=price + 1.5 * atr, take_profit=price - 2.5 * atr,
-            confidence=conf, reasoning=f"exit long: {reason_tail}",
-        )
+        d = _make("sell", price + 1.5 * atr, price - 2.5 * atr, "exit long")
         return _apply_overrides(d, symbol, threshold)
     if pos_qty < 0 and score > 0.20:
-        d = RulesDecision(
-            action="buy", size_pct=0.05,
-            stop_loss=price - 1.5 * atr, take_profit=price + 2.5 * atr,
-            confidence=conf, reasoning=f"exit short: {reason_tail}",
-        )
+        d = _make("buy", price - 1.5 * atr, price + 2.5 * atr, "exit short")
         return _apply_overrides(d, symbol, threshold)
 
     # Reinforcement ADD: when an existing position is open in the same direction
@@ -260,18 +329,10 @@ def generate_decision(
     # title via the scheduler so the user knows to average into the existing
     # position rather than open a new one.
     if pos_qty > 0 and score >= add_threshold:
-        d = RulesDecision(
-            action="buy", size_pct=0.05,
-            stop_loss=price - 1.5 * atr, take_profit=price + 2.5 * atr,
-            confidence=conf, reasoning=f"add long: {reason_tail}",
-        )
+        d = _make("buy", price - 1.5 * atr, price + 2.5 * atr, "add long")
         return _apply_overrides(d, symbol, threshold)
     if pos_qty < 0 and score <= -add_threshold:
-        d = RulesDecision(
-            action="sell", size_pct=0.05,
-            stop_loss=price + 1.5 * atr, take_profit=price - 2.5 * atr,
-            confidence=conf, reasoning=f"add short: {reason_tail}",
-        )
+        d = _make("sell", price + 1.5 * atr, price - 2.5 * atr, "add short")
         return _apply_overrides(d, symbol, threshold)
 
     # Higher-timeframe confirmation. If the scheduler fetched the 1h snapshot
@@ -290,12 +351,10 @@ def generate_decision(
                     action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
                     confidence=conf,
                     reasoning=f"hold: 15m long but 1h trend down — no HTF confirmation ({reason_tail})",
+                    contributions=contribs, dominant_indicator=dominant,
+                    regime=current_regime,
                 )
-            d = RulesDecision(
-                action="buy", size_pct=0.05,
-                stop_loss=price - 1.5 * atr, take_profit=price + 2.5 * atr,
-                confidence=conf, reasoning=f"long: {reason_tail}",
-            )
+            d = _make("buy", price - 1.5 * atr, price + 2.5 * atr, "long")
             return _apply_overrides(d, symbol, threshold)
         if score <= -threshold:
             if htf_up is True:
@@ -303,15 +362,15 @@ def generate_decision(
                     action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
                     confidence=conf,
                     reasoning=f"hold: 15m short but 1h trend up — no HTF confirmation ({reason_tail})",
+                    contributions=contribs, dominant_indicator=dominant,
+                    regime=current_regime,
                 )
-            d = RulesDecision(
-                action="sell", size_pct=0.05,
-                stop_loss=price + 1.5 * atr, take_profit=price - 2.5 * atr,
-                confidence=conf, reasoning=f"short: {reason_tail}",
-            )
+            d = _make("sell", price + 1.5 * atr, price - 2.5 * atr, "short")
             return _apply_overrides(d, symbol, threshold)
 
     return RulesDecision(
         action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
         confidence=conf, reasoning=f"hold: {reason_tail}",
+        contributions=contribs, dominant_indicator=dominant,
+        regime=current_regime,
     )

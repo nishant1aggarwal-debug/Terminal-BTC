@@ -159,6 +159,16 @@ class Settings(BaseSettings):
     # auditor also asks Claude for suggestions beyond the local rules.
     auditor_use_claude: bool = True            # honoured only if key is present
 
+    # Walk-forward parameter optimizer (Phase B of the self-learning loop).
+    # Runs weekly, picks the best (confidence_adj, size_multiplier) per symbol
+    # by replaying the rules engine on OOS windows and scoring PF × sqrt(trades).
+    # Winners are written as StrategyOverride rows (source="optimizer") and
+    # live for ``optimizer_override_hours`` (default 1 week = 168h).
+    optimizer_day_of_week: str = "sun"   # APScheduler cron day_of_week token
+    optimizer_hour_utc: int = 5          # 05:15 UTC = after auditor at 04:00
+    optimizer_max_symbols: int = 8       # top-N symbols by recent backtest
+    optimizer_override_hours: int = 168  # 1 week — refresh on the next run
+
     # Multi-timeframe confirmation. Signal fires only when the 1h trend agrees
     # with the 15m setup — dramatically cuts bad entries in whipsawing markets.
     htf_confirmation: bool = True

@@ -24,6 +24,12 @@ class Decision(SQLModel, table=True):
     confidence: Optional[float] = None
     reasoning: str = ""
     claude_usd_cost: float = 0.0
+    # Self-learning fields: which indicator drove the score, and what regime
+    # we were in. Auditor reads these to learn per-indicator + per-regime
+    # win rates and adjust weights/thresholds accordingly.
+    indicator_contributions_json: Optional[str] = None  # {ema: 0.30, macd: 0.18, ...}
+    regime: Optional[str] = None  # bull | bear | chop at decision time
+    dominant_indicator: Optional[str] = None  # name of largest |contribution|
 
 
 class Trade(SQLModel, table=True):
@@ -50,7 +56,8 @@ class ClosedTrade(SQLModel, table=True):
 
     Emitted every time a fill brings a Position's qty across zero (either
     all the way flat, or into the opposite direction). Powers win-rate,
-    profit-factor, and average-win/loss stats.
+    profit-factor, and average-win/loss stats — plus drives the
+    self-learning auditor (per-indicator + per-regime win rates).
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     closed_at: datetime = Field(default_factory=_utcnow, index=True)
@@ -69,6 +76,11 @@ class ClosedTrade(SQLModel, table=True):
     entry_decision_id: Optional[int] = None
     exit_decision_id: Optional[int] = None
     entry_confidence: Optional[float] = None
+    # Snapshots from the entry decision — auditor uses these to compute
+    # per-indicator and per-regime win rates and write adaptive overrides.
+    entry_contributions_json: Optional[str] = Field(default=None, index=False)
+    entry_regime: Optional[str] = Field(default=None, index=True)
+    entry_dominant_indicator: Optional[str] = Field(default=None, index=True)
 
 
 class Position(SQLModel, table=True):
@@ -208,6 +220,13 @@ class StrategyOverride(SQLModel, table=True):
       * ``confidence_adj`` (float ±0.20) — shift the threshold: +0.1 makes
                                             the engine MORE selective on this
                                             symbol; -0.1 makes it looser
+      * ``weight_ema`` / ``weight_macd`` / ``weight_rsi`` / ``weight_stoch_rsi``
+        / ``weight_bb`` (float 0.0..2.0) — per-indicator weight multiplier.
+        Set to 0.5 to halve an indicator's vote (auditor saw it misfiring).
+
+    ``regime`` (optional): when set, the override only applies while the
+    current market regime matches. Lets the auditor say "disable shorts on
+    ADA only in bull regimes" without nuking bear-regime shorts that work.
     """
     id: Optional[int] = Field(default=None, primary_key=True)
     symbol: str = Field(index=True)
@@ -219,6 +238,7 @@ class StrategyOverride(SQLModel, table=True):
     source: str = "local"  # "local" (rule-based) | "claude" | "manual"
     audit_id: Optional[int] = Field(default=None, foreign_key="auditreport.id")
     applied_count: int = 0
+    regime: Optional[str] = Field(default=None, index=True)  # bull | bear | chop | None=any
 
 
 class AuditReport(SQLModel, table=True):

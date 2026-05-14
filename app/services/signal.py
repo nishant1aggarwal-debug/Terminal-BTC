@@ -6,7 +6,7 @@ external API) or Claude (requires ANTHROPIC_API_KEY). Callers get a uniform
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.config import get_settings
@@ -27,6 +27,12 @@ class Decision:
     usd_cost: float = 0.0
     raw_usage: dict[str, int] | None = None
     backend: str = "rules"
+    # Self-learning telemetry — flows through to the persisted Decision row
+    # and (on a fill) onto the resulting ClosedTrade so the auditor can attribute
+    # outcomes to indicators and regimes.
+    contributions: dict[str, float] = field(default_factory=dict)
+    dominant_indicator: str | None = None
+    regime: str | None = None
 
 
 def generate(
@@ -173,4 +179,7 @@ def generate(
         confidence=rd.confidence,
         reasoning=rd.reasoning,
         backend="rules",
+        contributions=dict(rd.contributions or {}),
+        dominant_indicator=rd.dominant_indicator,
+        regime=rd.regime,
     )
