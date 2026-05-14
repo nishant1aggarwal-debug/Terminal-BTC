@@ -251,7 +251,6 @@ def fetch_order_book(symbol: str, limit: int = 5) -> dict[str, Any]:
     return get_client().fetch_order_book(symbol, limit=limit)
 
 
-@_with_retry
 # Symbols that have been observed to fail fetch_ticker — we skip them for
 # the rest of this process lifetime so the dashboard's /api/markets poll
 # doesn't spend ~3 s per dead symbol retrying. Re-populated from scratch
@@ -259,6 +258,7 @@ def fetch_order_book(symbol: str, limit: int = 5) -> dict[str, Any]:
 _BAD_TICKER_SYMBOLS: set[str] = set()
 
 
+@_with_retry
 def fetch_tickers(symbols: list[str] | None = None) -> dict[str, dict[str, Any]]:
     """Batch-fetch last price / 24h change / volume for many symbols in one call.
 
