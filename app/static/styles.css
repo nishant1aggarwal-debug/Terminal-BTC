@@ -273,7 +273,9 @@ main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
 .alert-main { flex: 1; min-width: 0; }
 .alert-title { font-size: 13px; font-weight: 600; }
 .alert-msg { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.alert-time { font-size: 10px; color: var(--muted); text-align: right; min-width: 60px; }
+.alert-time { font-size: 11px; color: var(--text); text-align: right; min-width: 78px; line-height: 1.3; }
+.alert-time-clock { font-variant-numeric: tabular-nums; font-weight: 600; }
+.alert-time-age { font-size: 10px; }
 
 .style-badge {
   display: inline-block; margin-left: 8px;

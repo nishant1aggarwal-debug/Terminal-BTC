@@ -70,6 +70,36 @@ const fmtTime = (iso) => {
   });
 };
 
+// Just the clock part — "14:58:18". Use when you want compact time without
+// the month/day prefix (e.g. inside a table row where the date is implied).
+const fmtClock = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleTimeString(undefined, {
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  });
+};
+
+// Relative time: "5s", "12m", "3h", "2d". Cheap to compute, refreshes on
+// every render (10 s dashboard poll), so values stay current.
+const fmtAge = (iso) => {
+  if (!iso) return "";
+  const secs = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
+  if (secs < 0) return "0s";
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
+  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
+  return `${Math.round(secs / 86400)}d ago`;
+};
+
+// Clock + age in one render: "14:58:18 · 5m ago". The canonical timestamp
+// format across the dashboard so every row tells you both "what time
+// exactly" and "how long ago".
+const fmtTimeWithAge = (iso) => {
+  if (!iso) return "—";
+  return `${fmtClock(iso)} <span class="muted">· ${fmtAge(iso)}</span>`;
+};
+
 const classPN = (n) => (n > 0 ? "pos" : n < 0 ? "neg" : "");
 
 async function fetchJSON(url, opts = {}) {
@@ -292,7 +322,7 @@ function renderPositions(rows) {
   document.getElementById("positions-count").textContent = rows.length;
   const tbody = document.querySelector("#positions-table tbody");
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="10" class="muted">no open positions</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="muted">no open positions</td></tr>`;
     return;
   }
   // Annotate target cells with the % distance from mark, so the user sees
@@ -309,6 +339,7 @@ function renderPositions(rows) {
     <tr>
       <td><strong>${p.symbol}</strong>${p.adds ? ` <span class="muted">+${p.adds}</span>` : ""}</td>
       <td><span class="tag ${p.side}">${p.side}</span></td>
+      <td>${fmtTimeWithAge(p.opened_at)}</td>
       <td class="num">${fmtQty(p.qty)}</td>
       <td class="num">${fmtPrice(p.avg_entry)}</td>
       <td class="num">${fmtPrice(p.mark_price)}</td>
@@ -330,7 +361,7 @@ function renderDecisions(rows) {
   }
   tbody.innerHTML = rows.slice(0, 20).map(d => `
     <tr>
-      <td>${fmtTime(d.ts)}</td>
+      <td>${fmtTimeWithAge(d.ts)}</td>
       <td><strong>${d.symbol}</strong></td>
       <td><span class="tag ${d.action}">${d.action}</span></td>
       <td class="num">${fmtPrice(d.last_close)}</td>
@@ -348,7 +379,7 @@ function renderTrades(rows) {
   }
   tbody.innerHTML = rows.map(t => `
     <tr>
-      <td>${fmtTime(t.ts)}</td>
+      <td>${fmtTimeWithAge(t.ts)}</td>
       <td><strong>${t.symbol}</strong></td>
       <td><span class="tag ${t.side}">${t.side}</span></td>
       <td class="num">${fmtQty(t.filled_amount || t.amount)}</td>
@@ -653,7 +684,8 @@ function renderAlerts(data) {
     return;
   }
   feed.innerHTML = items.slice(0, 40).map(a => {
-    const ago = relTime(a.ts);
+    const clock = fmtClock(a.ts);
+    const ago = fmtAge(a.ts);
     const severity = a.severity || "info";
     const unreadCls = a.read ? "" : "unread";
     const styleBadge = a.style
@@ -681,7 +713,10 @@ function renderAlerts(data) {
           ${levels}
           <div class="alert-msg">${escapeHtml(a.message || "")}</div>
         </div>
-        <div class="alert-time">${ago}</div>
+        <div class="alert-time">
+          <div class="alert-time-clock">${clock}</div>
+          <div class="alert-time-age muted">${ago}</div>
+        </div>
       </div>
     `;
   }).join("");
