@@ -3,24 +3,44 @@
 const REFRESH_MS = 10_000;        // full-dashboard poll
 const MARKETS_REFRESH_MS = 3_000;  // live prices — fast loop
 
-// TradingView widget — Bybit is the default data source. Their widget symbol
-// format is e.g. BYBIT:BTCUSDT (no slash). We fall back to the same symbol on
-// BINANCE/KRAKEN if the user has switched data sources.
+// TradingView widget. We deliberately decouple the CHART source from the
+// trading DATA source: trading runs on whatever DATA_SOURCE is set (MEXC,
+// Bybit, Kraken…), but the chart hits BINANCE because TradingView has the
+// broadest USDT-pair coverage there. If a symbol isn't on Binance (rare —
+// only the most obscure MEXC alts), we fall through to a small priority
+// list of exchanges TradingView indexes well.
+const _TV_CHART_SOURCES = ["BINANCE", "BYBIT", "OKX", "MEXC", "GATEIO"];
+// Symbols where we know Binance doesn't list — pin them to a working exchange.
+// Extend this map as you discover Binance-missing pairs.
+const _TV_CHART_OVERRIDES = {
+  // Common MEXC-exotic discoveries that TradingView shows on MEXC only.
+  "SIREN/USDT": "MEXC", "LAB/USDT": "MEXC", "BILL/USDT": "MEXC",
+  "AIGENSYN/USDT": "MEXC", "CSCOSTOCK/USDT": "MEXC", "RIVER/USDT": "MEXC",
+  "TROLLSOL/USDT": "MEXC", "SKYAI/USDT": "MEXC", "UB/USDT": "MEXC",
+  "B/USDT": "MEXC", "Q/USDT": "MEXC", "TRUTH/USDT": "MEXC",
+  "HYPE/USDT": "MEXC", "TAO/USDT": "BYBIT",
+};
 let _tvWidget = null;
 let _tvSymbol = "BTC/USDT";
 let _tvInterval = "15";
 
-function tvPair(symbol, source = "BYBIT") {
+function tvPair(symbol, source = "BINANCE") {
   const clean = symbol.replace("/", "").toUpperCase();
   return `${source.toUpperCase()}:${clean}`;
 }
 
-function mountTradingView(symbol, interval, source) {
+function _chartSourceFor(symbol) {
+  // Per-symbol pin wins, else default to first source in the priority list.
+  return _TV_CHART_OVERRIDES[symbol] || _TV_CHART_SOURCES[0];
+}
+
+function mountTradingView(symbol, interval, _ignoredSource) {
   const host = document.getElementById("tv-chart");
   if (!host) return;
   host.innerHTML = "";
+  const source = _chartSourceFor(symbol);
   const iframe = document.createElement("iframe");
-  const sym = encodeURIComponent(tvPair(symbol, source || "BYBIT"));
+  const sym = encodeURIComponent(tvPair(symbol, source));
   iframe.src = `https://s.tradingview.com/widgetembed/?frameElementId=tv&symbol=${sym}&interval=${interval}&theme=dark&style=1&timezone=Etc/UTC&withdateranges=1&hide_side_toolbar=0&allow_symbol_change=1&save_image=1`;
   iframe.style.cssText = "width:100%; height:100%; border:0;";
   iframe.allow = "fullscreen";
@@ -196,25 +216,38 @@ function renderMarkets(rows) {
     card.addEventListener("click", () => {
       _tvSymbol = card.getAttribute("data-symbol");
       document.getElementById("tv-symbol").value = _tvSymbol;
-      mountTradingView(_tvSymbol, _tvInterval, window._tvSource);
+      mountTradingView(_tvSymbol, _tvInterval);
       host.querySelectorAll(".market-card").forEach(c => c.classList.remove("selected"));
       card.classList.add("selected");
     });
   });
-  // Populate tv-symbol dropdown.
+  // Populate the tv-symbol dropdown. We refresh it on every render so that
+  // newly-discovered MEXC symbols (auto-discovery adds top-N pairs from the
+  // exchange) appear in the dropdown without needing a page reload. Listener
+  // attachment is gated to once.
   const sel = document.getElementById("tv-symbol");
-  if (sel && sel.options.length === 0) {
-    sel.innerHTML = rows.map(r =>
-      `<option value="${r.symbol}"${r.symbol === _tvSymbol ? " selected" : ""}>${r.symbol}</option>`
-    ).join("");
-    sel.addEventListener("change", (e) => {
-      _tvSymbol = e.target.value;
-      mountTradingView(_tvSymbol, _tvInterval, window._tvSource);
-    });
-    document.getElementById("tv-interval").addEventListener("change", (e) => {
-      _tvInterval = e.target.value;
-      mountTradingView(_tvSymbol, _tvInterval, window._tvSource);
-    });
+  if (sel) {
+    const wanted = rows.map(r => r.symbol);
+    const current = Array.from(sel.options).map(o => o.value);
+    const same = wanted.length === current.length &&
+                 wanted.every((s, i) => s === current[i]);
+    if (!same) {
+      sel.innerHTML = rows.map(r =>
+        `<option value="${r.symbol}"${r.symbol === _tvSymbol ? " selected" : ""}>${r.symbol}</option>`
+      ).join("");
+      sel.value = _tvSymbol;
+    }
+    if (!sel._wired) {
+      sel.addEventListener("change", (e) => {
+        _tvSymbol = e.target.value;
+        mountTradingView(_tvSymbol, _tvInterval);
+      });
+      document.getElementById("tv-interval").addEventListener("change", (e) => {
+        _tvInterval = e.target.value;
+        mountTradingView(_tvSymbol, _tvInterval);
+      });
+      sel._wired = true;
+    }
   }
 }
 
@@ -897,9 +930,10 @@ if (typeof Notification !== "undefined" && Notification.permission === "granted"
   b.disabled = true;
 }
 
-// Mount TradingView chart immediately with default symbol; refreshAll() will
-// re-mount with the correct data source once /api/overview lands.
-mountTradingView(_tvSymbol, _tvInterval, "BYBIT");
+// Mount TradingView chart immediately with the default symbol. The chart
+// source is derived from the symbol itself (see _chartSourceFor), so it
+// doesn't depend on /api/overview having loaded yet.
+mountTradingView(_tvSymbol, _tvInterval);
 
 refreshAll();
 setInterval(refreshAll, REFRESH_MS);
