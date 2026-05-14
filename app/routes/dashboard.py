@@ -332,6 +332,13 @@ async def positions() -> list[dict[str, Any]]:
         upnl = _unrealized(p, mark)
         notional = abs(p.qty * p.avg_entry)
         pct = (upnl / notional * 100.0) if notional else 0.0
+        # Distance-to-target in percent, for the dashboard to colour-code
+        # "how close are we to TP1 / TP2 / SL right now?". None when we don't
+        # have a mark price OR the target wasn't set on this position.
+        def _pct_to(level: float | None) -> float | None:
+            if level is None or mark is None or p.avg_entry <= 0:
+                return None
+            return (level - mark) / mark * 100.0
         out.append({
             "symbol": p.symbol,
             "qty": p.qty,
@@ -342,6 +349,19 @@ async def positions() -> list[dict[str, Any]]:
             "unrealized_pnl_usdt": upnl,
             "unrealized_pnl_pct": pct,
             "updated_at": p.updated_at.isoformat(),
+            # Multi-target exit plan — these power the "how close to TP1" badge.
+            "sl_price": p.sl_price,
+            "tp1_price": p.tp1_price,
+            "tp2_price": p.tp2_price,
+            "tp1_hit": p.tp1_hit,
+            "tp2_hit": p.tp2_hit,
+            "trailing_high_water": p.trailing_high_water,
+            "adds": p.adds,
+            "initial_qty": p.initial_qty,
+            "opened_at": p.opened_at.isoformat() if p.opened_at else None,
+            "dist_to_sl_pct": _pct_to(p.sl_price),
+            "dist_to_tp1_pct": _pct_to(p.tp1_price),
+            "dist_to_tp2_pct": _pct_to(p.tp2_price),
         })
     out.sort(key=lambda r: abs(r["unrealized_pnl_usdt"]), reverse=True)
     return out

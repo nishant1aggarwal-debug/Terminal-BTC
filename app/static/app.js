@@ -292,16 +292,29 @@ function renderPositions(rows) {
   document.getElementById("positions-count").textContent = rows.length;
   const tbody = document.querySelector("#positions-table tbody");
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="muted">no open positions</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="muted">no open positions</td></tr>`;
     return;
   }
+  // Annotate target cells with the % distance from mark, so the user sees
+  // "TP1 0.1410 (+3.2%)" — they know how far the price has to move before
+  // a target fires. tp1_hit / tp2_hit show as ✓ markers.
+  const cell = (price, distPct, hit) => {
+    if (price == null) return `<span class="muted">—</span>`;
+    const tag = hit ? ` <span class="tag good">✓</span>` : "";
+    const dist = (distPct == null) ? "" :
+      ` <span class="muted">(${distPct >= 0 ? "+" : ""}${distPct.toFixed(2)}%)</span>`;
+    return `${fmtPrice(price)}${dist}${tag}`;
+  };
   tbody.innerHTML = rows.map(p => `
     <tr>
-      <td><strong>${p.symbol}</strong></td>
+      <td><strong>${p.symbol}</strong>${p.adds ? ` <span class="muted">+${p.adds}</span>` : ""}</td>
       <td><span class="tag ${p.side}">${p.side}</span></td>
       <td class="num">${fmtQty(p.qty)}</td>
       <td class="num">${fmtPrice(p.avg_entry)}</td>
       <td class="num">${fmtPrice(p.mark_price)}</td>
+      <td class="num">${cell(p.sl_price, p.dist_to_sl_pct, false)}</td>
+      <td class="num">${cell(p.tp1_price, p.dist_to_tp1_pct, p.tp1_hit)}</td>
+      <td class="num">${cell(p.tp2_price, p.dist_to_tp2_pct, p.tp2_hit)}</td>
       <td class="num ${classPN(p.unrealized_pnl_usdt)}">${fmtSignedUsd(p.unrealized_pnl_usdt)}</td>
       <td class="num ${classPN(p.unrealized_pnl_pct)}">${fmtPct(p.unrealized_pnl_pct)}</td>
     </tr>
