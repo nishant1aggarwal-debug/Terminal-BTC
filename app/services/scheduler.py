@@ -161,22 +161,50 @@ async def _tick_symbol(
             current_avg_entry=current_avg,
         )
 
-    with get_session() as s:
-        row = Decision(
-            source=source,
-            symbol=symbol,
-            timeframe=tf,
-            snapshot_json=json.dumps(snap_dict, default=str),
-            action=decision.action,
-            size_pct=decision.size_pct,
-            stop_loss=decision.stop_loss,
-            take_profit=decision.take_profit,
-            confidence=decision.confidence,
-            reasoning=f"[{decision.backend}] {decision.reasoning}",
-            claude_usd_cost=decision.usd_cost,
-        )
-        s.add(row)
-        s.commit()
+    # Persist Decision rows for actionable signals (buy/sell) ALWAYS — these
+    # power the auditor and the user's per-symbol audit trail. For 'hold'
+    # decisions we keep only every Nth one (rotating sample) instead of
+    # every tick × every symbol — that was dumping ~3000 rows/day of
+    # mostly-uninteresting holds and was the primary driver of the Neon
+    # egress quota burn. We still keep enough holds so /api/markets and the
+    # auditor can read recent indicator snapshots.
+    should_persist = True
+    if decision.action == "hold":
+        # Keep ~1 in 10 holds (deterministic by minute so each symbol's holds
+        # cluster on the same ticks rather than random spread).
+        from datetime import datetime as _dt
+        should_persist = (_dt.now(timezone.utc).minute // 6) % 2 == 0
+
+    decision_id: int | None = None
+    if should_persist:
+        with get_session() as s:
+            row = Decision(
+                source=source,
+                symbol=symbol,
+                timeframe=tf,
+                snapshot_json=json.dumps(snap_dict, default=str),
+                action=decision.action,
+                size_pct=decision.size_pct,
+                stop_loss=decision.stop_loss,
+                take_profit=decision.take_profit,
+                confidence=decision.confidence,
+                reasoning=f"[{decision.backend}] {decision.reasoning}",
+                claude_usd_cost=decision.usd_cost,
+            )
+            s.add(row)
+            s.commit()
+            s.refresh(row)
+            decision_id = row.id
+
+    # When we skipped persistence (hold + non-sampling tick), the executor
+    # can short-circuit too — there's nothing for it to do on a hold anyway.
+    if decision_id is None:
+        return {
+            "symbol": symbol,
+            "action": "hold",
+            "status": "hold",
+            "message": "hold (not persisted)",
+        }
         s.refresh(row)
         decision_id = row.id
 
