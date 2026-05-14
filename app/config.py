@@ -120,10 +120,17 @@ class Settings(BaseSettings):
     # USDT pairs. Set true when DATA_SOURCE is a wide-universe exchange (mexc,
     # bitget, gateio) and you want 50-200+ pairs instead of the hardcoded 14.
     auto_discover_symbols: bool = False
-    # 25 keeps Render free-tier CPU happy. 60 saturated the event loop during
-    # ticks and caused /healthz to time out (server_failed loop). Bump back up
-    # if you upgrade to Render Starter or run locally.
-    auto_discover_top_n: int = 25
+    # Top N highest-volume USDT pairs to trade. 100 covers essentially every
+    # liquid USDT perp on MEXC (the long tail past ~150 is mostly zombies).
+    # Combined with auto_discover_min_quote_volume_usdt this auto-prunes — if
+    # only 80 pairs clear the volume floor on a quiet day, we trade 80; on a
+    # high-volume day we get the full 100.
+    auto_discover_top_n: int = 100
+    # Minimum 24h quote volume (USDT) for a pair to be eligible. $5M/day
+    # filters out illiquid junk where slippage > our profit target. MEXC's
+    # actually-tradable USDT perp universe sits around 100-150 pairs above
+    # this floor at any given time.
+    auto_discover_min_quote_volume_usdt: float = 5_000_000.0
 
     # Macro context — Fear & Greed pulled every MACRO_POLL_MIN minutes.
     # When F&G is extreme (>80 greed or <20 fear), the rules engine

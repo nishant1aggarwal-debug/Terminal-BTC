@@ -38,8 +38,15 @@ services:
         value: mexc
       - key: AUTO_DISCOVER_SYMBOLS
         value: "true"
+      # 100 covers essentially every liquid USDT perp on MEXC. Combined with
+      # the $5M/day floor below, the system auto-prunes zombies (an illiquid
+      # pair scoring high enough to fire would lose more to spread than the
+      # signal pays). Bump if you switch to a wider-universe source (gateio
+      # has 800+ USDT pairs; raise top_n if you want to fish there).
       - key: AUTO_DISCOVER_TOP_N
-        value: "25"
+        value: "100"
+      - key: AUTO_DISCOVER_MIN_QUOTE_VOLUME_USDT
+        value: "5000000"
       - key: PAPER_STARTING_EQUITY_USDT
         value: "5000"
       # 5-min tick cadence on Starter — free-tier had to be backed off to 10

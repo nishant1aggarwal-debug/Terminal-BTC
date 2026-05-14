@@ -59,7 +59,9 @@ async def lifespan(app: FastAPI):
         async def _discover_async():
             try:
                 discovered = await asyncio.to_thread(
-                    data_source.discover_universe, settings.auto_discover_top_n,
+                    data_source.discover_universe,
+                    settings.auto_discover_top_n,
+                    settings.auto_discover_min_quote_volume_usdt,
                 )
             except Exception as exc:
                 log.warning("auto_discover_failed_keeping_hardcoded", error=str(exc))

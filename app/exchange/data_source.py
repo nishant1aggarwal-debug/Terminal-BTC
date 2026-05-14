@@ -133,7 +133,9 @@ def _build(source: str) -> ccxt.Exchange:
     return client
 
 
-def discover_universe(top_n: int = 50) -> list[str]:
+def discover_universe(
+    top_n: int = 50, min_quote_volume_usdt: float = 0.0,
+) -> list[str]:
     """Auto-discover the top-N most-traded USDT pairs on the active exchange.
 
     Use this to escape the hardcoded TRADE_SYMBOLS list — when DATA_SOURCE points
@@ -144,6 +146,7 @@ def discover_universe(top_n: int = 50) -> list[str]:
       * Quote currency = USDT
       * For futures: only swap/perp contracts (not dated futures)
       * Active markets only (no delisted)
+      * 24h quote volume >= ``min_quote_volume_usdt`` (drops illiquid junk)
       * Sorted by 24h quote volume desc, top_n returned
     """
     client = get_client()
@@ -211,9 +214,21 @@ def discover_universe(top_n: int = 50) -> list[str]:
         return float(t.get("quoteVolume") or t.get("baseVolume") or 0)
 
     ranked = sorted(deduped, key=_vol, reverse=True)
+    # Minimum-volume floor — drops symbols whose 24h quote volume can't
+    # support our typical position size without prohibitive slippage. Even
+    # if top_n could fit more pairs, we'd rather trade fewer good ones than
+    # 200 zombies. ranked is volume-sorted desc, so as soon as one falls
+    # below the floor every subsequent one will too — we can break.
+    if min_quote_volume_usdt > 0:
+        kept: list[str] = []
+        for sym in ranked:
+            if _vol(sym) < min_quote_volume_usdt:
+                break
+            kept.append(sym)
+        ranked = kept
     out = ranked[:top_n]
     log.info("discover_universe_done", source=settings.data_source, total=len(deduped),
-             returned=len(out), top=out[:5])
+             eligible=len(ranked), returned=len(out), top=out[:5])
     return out
 
 
