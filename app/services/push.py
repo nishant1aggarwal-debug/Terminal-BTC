@@ -120,7 +120,12 @@ def push_event(
 
     try:
         req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        # 3 s ceiling — ntfy.sh normally answers in <200 ms; anything beyond
+        # 3 s means the upstream is wedged and we'd rather drop the push than
+        # block whoever called us. With the to_thread wrapping at the scheduler
+        # site this can't stall the event loop anyway, but a tight ceiling
+        # keeps total tick time bounded even when many alerts fire at once.
+        with urllib.request.urlopen(req, timeout=3) as resp:
             ok = resp.status == 200
     except Exception as exc:
         log.warning("ntfy_push_failed", error=str(exc), topic=topic[:8] + "...")

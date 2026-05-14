@@ -145,7 +145,14 @@ async def _tick_symbol(
                 _pos = _s.get(_Position, symbol)
                 add_index = (_pos.adds if _pos else 0) + 1
 
-        notifications.signal_fired(
+        # Offload to a worker thread — signal_fired writes to DB then does
+        # a blocking HTTP POST to ntfy.sh. Running it inline would freeze
+        # the event loop until the push round-trips, and /healthz (5 s
+        # ceiling) would time out whenever multiple signals fired in a
+        # single tick. asyncio.to_thread keeps the loop free for healthz
+        # and other in-flight ticks while the push fans out.
+        await asyncio.to_thread(
+            notifications.signal_fired,
             symbol=symbol,
             action=decision.action,
             confidence=decision.confidence or 0.0,
