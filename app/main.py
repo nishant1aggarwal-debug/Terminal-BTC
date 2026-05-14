@@ -105,6 +105,36 @@ app.include_router(webhook.router)  # webhook has its own shared-secret; don't d
 app.include_router(dashboard.router, dependencies=_auth)
 
 _static_dir = Path(__file__).parent / "static"
+
+# Build version: stamped once at process start. Used as a cache-buster on the
+# /ui/ HTML response so every redeploy automatically gets fresh app.js + CSS
+# without the user having to manually clear their browser cache. We seed it
+# from RENDER_GIT_COMMIT (auto-populated on Render) and fall back to the
+# process start time so a local run still gets a unique value per restart.
+import os as _os
+import time as _time
+_BUILD_VERSION = (_os.getenv("RENDER_GIT_COMMIT") or str(int(_time.time())))[:12]
+
+
+@app.get("/ui/")
+@app.get("/ui")
+async def _ui_index():
+    """Serve index.html with a cache-buster on its asset references.
+
+    StaticFiles would serve the file as-is and let the browser cache it
+    indefinitely; that's why "the timestamps didn't change after refresh"
+    keeps happening. By rewriting app.js / styles.css references to
+    /ui/app.js?v=<build> we make every deploy invalidate cached assets
+    automatically.
+    """
+    from fastapi.responses import HTMLResponse
+    html_path = _static_dir / "index.html"
+    html = html_path.read_text(encoding="utf-8")
+    html = html.replace('src="/ui/app.js"', f'src="/ui/app.js?v={_BUILD_VERSION}"')
+    html = html.replace('href="/ui/styles.css"', f'href="/ui/styles.css?v={_BUILD_VERSION}"')
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache, must-revalidate"})
+
+
 app.mount("/ui", StaticFiles(directory=_static_dir, html=True), name="ui")
 
 
