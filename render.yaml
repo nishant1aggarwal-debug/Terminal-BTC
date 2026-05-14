@@ -38,13 +38,13 @@ services:
         value: mexc
       - key: AUTO_DISCOVER_SYMBOLS
         value: "true"
-      # 60 is the largest top-N that fits Render Starter's 512 MB RAM with
-      # 4 concurrent ticks. top-100 OOM-killed the container. Combined with
-      # the $5M/day floor, we still catch every liquid USDT perp — the long
-      # tail past 80 is mostly zombies. Bump to 100+ if you upgrade to Render
-      # Standard (2 GB RAM, ~$25/mo).
+      # 40 is the stable ceiling on Render Starter (0.5 vCPU + 512 MB) with
+      # 3 concurrent ticks at a 5-min cadence. top-60 and top-100 caused
+      # healthcheck timeouts and OOM kills mid-tick. Combined with the
+      # $5M/day floor, top-40 still captures essentially every liquid USDT
+      # perp; the long tail past 40 contributes < 5% of venue volume.
       - key: AUTO_DISCOVER_TOP_N
-        value: "60"
+        value: "40"
       - key: AUTO_DISCOVER_MIN_QUOTE_VOLUME_USDT
         value: "5000000"
       - key: PAPER_STARTING_EQUITY_USDT

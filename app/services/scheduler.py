@@ -262,13 +262,13 @@ async def tick(
     else:
         symbols_to_run = data_source.filter_supported(settings.symbols)
 
-    # Bounded parallelism. Starter has 0.5 vCPU + 512 MB RAM. Each in-flight
-    # symbol is a pandas DataFrame for OHLCV + HTF + 9 indicator columns —
-    # ~30 MB resident at peak. 4 concurrent keeps total ticks well inside
-    # the 5 s /healthz window and stays under the OOM ceiling on Starter.
-    # Bump to 6+ only on Standard or higher (top-100 universe + Semaphore(6)
-    # killed Starter with exit-137 OOMs).
-    sem = asyncio.Semaphore(4)
+    # Bounded parallelism. Starter has 0.5 vCPU + 512 MB. Each in-flight
+    # symbol holds a pandas DataFrame for OHLCV + HTF + 9 indicator columns —
+    # ~30 MB resident at peak. 3 concurrent + 5-min interval is the stable
+    # combo on Starter: ticks finish in ~25 s for a 40-symbol universe, well
+    # inside the 5 s /healthz window between batches. Higher parallelism
+    # (4-6) caused /healthz timeouts and OOM kills.
+    sem = asyncio.Semaphore(3)
 
     async def _bounded(sym, alert):
         async with sem:
