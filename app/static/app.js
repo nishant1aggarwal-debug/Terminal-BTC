@@ -34,27 +34,33 @@ function _chartSourceFor(symbol) {
   return _TV_CHART_OVERRIDES[symbol] || _TV_CHART_SOURCES[0];
 }
 
-// Default studies layered onto every TradingView chart. These are the SAME
-// indicators the bot's rules engine uses to score signals — so when you
-// look at the chart, you see exactly what the bot sees — plus VWAP, the
-// single most-watched institutional reference (real desks execute against
-// VWAP every day; it's the benchmark for "fair price"). No magic indicators,
-// no "whale signals" — just the bot's brain on the screen.
+// Studies layered onto every TradingView chart. These are the SAME indicators
+// the bot's rules engine uses to score signals — plus VWAP, the single most-
+// watched institutional reference (real desks execute against VWAP daily).
+// No magic indicators, no "whale signals" — just the bot's brain on the
+// screen so visual analysis lines up with what the bot will actually fire.
 //
 //   * EMA 20 / 50 / 200 — the bot's regime gate (bull stack = +0.30 score)
-//   * RSI(14)            — momentum oscillator, the bot's RSI contribution
-//   * MACD(12,26,9)      — trend strength, the bot's MACD contribution
+//   * RSI(14)            — momentum, bot's RSI contribution
+//   * MACD(12,26,9)      — trend strength, bot's MACD contribution
 //   * Bollinger Bands    — volatility envelope; bb_pct contribution
-//   * Stochastic RSI     — early momentum reversals, the bot's stoch contribution
-//   * VWAP               — institutional benchmark, watch for confluence
+//   * Stochastic RSI     — early momentum reversals, bot's stoch contribution
+//   * VWAP               — institutional benchmark
 //   * Volume             — confirms moves; thin volume = lower confidence
+//
+// Note: MAExp with explicit length input requires the object form. The bare
+// "@tv-basicstudies" string IDs are the standard library defaults.
 const _TV_STUDIES = [
-  "MAExp@tv-basicstudies",        // EMA — defaults to 9; we override below if widget allows
-  "RSI@tv-basicstudies",          // RSI(14)
-  "MACD@tv-basicstudies",         // MACD(12,26,9)
-  "BB@tv-basicstudies",           // Bollinger Bands (20, 2)
+  // Three EMAs, each on its own pane, matching the 20/50/200 stack the bot
+  // uses (rules_signal._score_ema).
+  { id: "MAExp@tv-basicstudies", inputs: { length: 20 } },
+  { id: "MAExp@tv-basicstudies", inputs: { length: 50 } },
+  { id: "MAExp@tv-basicstudies", inputs: { length: 200 } },
+  "RSI@tv-basicstudies",
+  "MACD@tv-basicstudies",
+  "BB@tv-basicstudies",
   "StochasticRSI@tv-basicstudies",
-  "VWAP@tv-basicstudies",         // Volume Weighted Average Price
+  "VWAP@tv-basicstudies",
   "Volume@tv-basicstudies",
 ];
 
@@ -62,21 +68,56 @@ function mountTradingView(symbol, interval, _ignoredSource) {
   const host = document.getElementById("tv-chart");
   if (!host) return;
   host.innerHTML = "";
+  // The widget needs a container with a stable ID (it queries the DOM by ID).
+  // Recreate the inner div on every remount so leftover state from a prior
+  // chart can't bleed in.
+  const containerId = "tv-chart-container";
+  const inner = document.createElement("div");
+  inner.id = containerId;
+  inner.style.cssText = "width:100%;height:100%;";
+  host.appendChild(inner);
+
   const source = _chartSourceFor(symbol);
-  const iframe = document.createElement("iframe");
-  const sym = encodeURIComponent(tvPair(symbol, source));
-  const studies = _TV_STUDIES.map(encodeURIComponent).join("%2C");
-  iframe.src =
-    "https://s.tradingview.com/widgetembed/" +
-    `?frameElementId=tv&symbol=${sym}` +
-    `&interval=${interval}` +
-    "&theme=dark&style=1&timezone=Etc/UTC" +
-    "&withdateranges=1&hide_side_toolbar=0" +
-    "&allow_symbol_change=1&save_image=1" +
-    `&studies=${studies}`;
-  iframe.style.cssText = "width:100%; height:100%; border:0;";
-  iframe.allow = "fullscreen";
-  host.appendChild(iframe);
+  const sym = tvPair(symbol, source);
+
+  // tv.js loads asynchronously from the CDN; if the page rendered before it
+  // arrived we wait a beat and retry. Two short retries cover slow first
+  // loads without spinning forever on a real outage.
+  if (typeof window.TradingView === "undefined" || !window.TradingView.widget) {
+    if (mountTradingView._retries === undefined) mountTradingView._retries = 0;
+    if (mountTradingView._retries < 8) {
+      mountTradingView._retries += 1;
+      setTimeout(() => mountTradingView(symbol, interval), 400);
+      return;
+    }
+    // Give up after ~3 s — show a fallback iframe so the user at least sees price.
+    host.innerHTML =
+      '<div style="padding:20px;color:#999;text-align:center;">' +
+      'TradingView library failed to load.<br>' +
+      '<a href="https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(sym) +
+      '" target="_blank" style="color:var(--accent);">Open chart on TradingView →</a></div>';
+    return;
+  }
+  mountTradingView._retries = 0;
+
+  /* eslint-disable no-undef */
+  new TradingView.widget({
+    autosize: true,
+    symbol: sym,
+    interval: String(interval),
+    timezone: "Asia/Kolkata",  // matches the rest of the dashboard's IST display
+    theme: "dark",
+    style: "1",                  // candles
+    locale: "en",
+    enable_publishing: false,
+    allow_symbol_change: true,
+    container_id: containerId,
+    studies: _TV_STUDIES,
+    hide_side_toolbar: false,
+    withdateranges: true,
+    save_image: true,
+  });
+  /* eslint-enable no-undef */
 }
 
 const fmtUsd = (n, digits = 2) => {

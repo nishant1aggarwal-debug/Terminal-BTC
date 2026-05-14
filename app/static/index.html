@@ -320,6 +320,10 @@
     auto-refreshes every 10s · <a href="/status" target="_blank">/status JSON</a> · <a href="/docs" target="_blank">API docs</a>
   </footer>
 
+  <!-- TradingView Advanced Chart widget. Needed BEFORE app.js so the
+       TradingView.widget constructor is available when mountTradingView
+       fires. tv.js itself is cached by the CDN — first-load only. -->
+  <script src="https://s3.tradingview.com/tv.js"></script>
   <script src="/ui/app.js"></script>
 </body>
 </html>
