@@ -168,11 +168,10 @@ async def _tick_symbol(
     # mostly-uninteresting holds and was the primary driver of the Neon
     # egress quota burn. We still keep enough holds so /api/markets and the
     # auditor can read recent indicator snapshots.
+    # Persistent SQLite on Render Starter — no egress quota to worry about, so
+    # we write every Decision row (including holds). The auditor + dashboard
+    # both benefit from the complete history.
     should_persist = True
-    if decision.action == "hold":
-        # Keep ~1 in 10 holds (deterministic by minute so each symbol's holds
-        # cluster on the same ticks rather than random spread).
-        should_persist = (datetime.now(timezone.utc).minute // 6) % 2 == 0
 
     decision_id: int | None = None
     if should_persist:
@@ -263,12 +262,10 @@ async def tick(
     else:
         symbols_to_run = data_source.filter_supported(settings.symbols)
 
-    # Bounded parallelism: free-tier Render has only ~2 CPU cores and a
-    # shared GIL — every CPU spike risks /healthz timing out (5s window).
-    # 3 concurrent symbols keeps total tick time around 25s for a 25-pair
-    # sweep while leaving the event loop responsive enough for the
-    # external healthcheck + ntfy push fan-out.
-    sem = asyncio.Semaphore(3)
+    # Bounded parallelism. Render Starter has dedicated CPU (no noisy-neighbor
+    # contention), so we can push to 6 concurrent symbols — total tick time
+    # for a 25-pair sweep drops to ~12s, well inside the healthcheck window.
+    sem = asyncio.Semaphore(6)
 
     async def _bounded(sym, alert):
         async with sem:

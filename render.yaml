@@ -1,21 +1,23 @@
-# Render.com one-click deploy config.
+# Render.com deploy config.
 #
-# After clicking "Deploy to Render" (see the link in README.md), Render reads
-# this file, builds the Docker image, and gives you a public HTTPS URL.
-#
-# Free tier note: disks are not available on free services, so the SQLite DB
-# lives inside the container — it resets on every redeploy (but survives normal
-# restarts). Fine for paper trading + the self-rebuilding backtest/F&G caches.
-# Upgrade the plan to 'starter' (~$7/mo) if you want persistent history.
+# Plan: starter ($7/mo) + 1 GB persistent disk mounted at /var/data.
+# SQLite DB lives on the disk so trade history, the auditor's overrides, and
+# the per-indicator/per-regime learning state survive every redeploy.
 
 services:
   - type: web
     name: terminal-btc
     runtime: docker
-    plan: free
+    plan: starter
     autoDeploy: true
     healthCheckPath: /healthz
+    disk:
+      name: terminal-btc-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
+      - key: DATABASE_URL
+        value: sqlite:////var/data/terminal_btc.db
       - key: PAPER_MODE
         value: "true"
       - key: LIVE_TRADING
@@ -40,6 +42,9 @@ services:
         value: "25"
       - key: PAPER_STARTING_EQUITY_USDT
         value: "5000"
+      # 5-min tick cadence on Starter — free-tier had to be backed off to 10
+      # min to survive idle eviction; persistent disk + dedicated CPU lets
+      # us push it back to 5.
       - key: POLL_INTERVAL_SEC
         value: "300"
       # Bybit-futures-style defaults, explicitly pinned so they survive
