@@ -98,8 +98,21 @@ class Settings(BaseSettings):
 
     # Signal threshold: composite multi-indicator confidence must exceed this
     # for a buy/sell to fire. 0.55 is permissive, 0.70 is strict. Lower =
-    # more trades.
-    min_signal_confidence: float = 0.55
+    # more trades. Set to 0.70 ("strict, ~10-20/day") — only fires when most
+    # indicators agree AND the higher-timeframe confirms. Cuts the marginal
+    # noise that was net-negative at 0.55.
+    min_signal_confidence: float = 0.70
+
+    # Exit strategy:
+    #   "targets" — fixed TP1 (50% off at halfway) + TP2 (rest) + trailing
+    #               after TP1. Caps winners.
+    #   "runner"  — NO fixed take-profit. Initial 1.5xATR hard stop, then a
+    #               Chandelier trailing stop (22-bar high ∓ 3xATR) that arms
+    #               at entry and ratchets with the trend. Exit ONLY when the
+    #               trail breaks. Lets winners run +15-50%; most trades are
+    #               small stop-outs that the rare huge runner pays for. This
+    #               is the trend-follower / "let it ride" profile.
+    exit_mode: str = "runner"
 
     # Minimum TP2 distance as a fraction of entry price. With 10x leverage a
     # 5% move = 50% return on margin — comfortably outpaces 0.04% × 2 taker
@@ -257,6 +270,14 @@ class Settings(BaseSettings):
         v = v.lower()
         if v not in {"rules", "claude", "hold"}:
             raise ValueError("signal_mode must be 'rules', 'claude', or 'hold'")
+        return v
+
+    @field_validator("exit_mode")
+    @classmethod
+    def _check_exit_mode(cls, v: str) -> str:
+        v = v.lower()
+        if v not in {"targets", "runner"}:
+            raise ValueError("exit_mode must be 'targets' or 'runner'")
         return v
 
     @field_validator("data_source")

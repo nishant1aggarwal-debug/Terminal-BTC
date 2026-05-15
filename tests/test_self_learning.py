@@ -23,15 +23,23 @@ from app.services import auditor, rules_signal
 
 
 def _bull_snapshot() -> dict:
-    """Synthetic snapshot that fires a strong long: EMA stack + MACD + RSI agree."""
+    """Synthetic snapshot that fires a strong long: every indicator agrees.
+
+    Tuned to clear the production confidence threshold with margin
+    (score ≈ +0.90 → conf ≈ 0.95) so these tests stay green independent of
+    where MIN_SIGNAL_CONFIDENCE is set. They assert contribution/regime
+    mechanics, not the threshold itself.
+      EMA +0.30 · MACD +0.20 (hist ≥ atr) · RSI +0.15 ·
+      StochRSI +0.15 (bullish cross from oversold) · BB +0.10
+    """
     return {
         "symbol": "BTC/USDT", "last_close": 100.0, "atr_14": 1.0,
         "spread_bps": 5.0, "adx_14": 30.0,
         "rsi_14": 60.0,
-        "macd": 0.5, "macd_signal": 0.3, "macd_hist": 0.2,
+        "macd": 0.5, "macd_signal": 0.3, "macd_hist": 1.2,
         "ema_20": 102.0, "ema_50": 101.0, "ema_200": 99.0,
         "bb_upper": 105.0, "bb_middle": 100.0, "bb_lower": 95.0, "bb_pct": 0.75,
-        "stoch_rsi_k": 35.0, "stoch_rsi_d": 30.0,
+        "stoch_rsi_k": 25.0, "stoch_rsi_d": 20.0,
     }
 
 

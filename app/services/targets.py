@@ -71,12 +71,21 @@ def set_targets_on_open(
         pos = s.get(Position, symbol)
         if pos is None or abs(pos.qty) < 1e-9:
             return
-        if pos.sl_price is not None and pos.tp1_price is not None:
-            return  # Already planned; an add shouldn't reset targets.
+        if pos.sl_price is not None:
+            return  # Already planned; an add shouldn't reset the stop.
         sl, tp1, tp2 = compute_levels(entry_price, atr, side)
         pos.sl_price = sl
-        pos.tp1_price = tp1
-        pos.tp2_price = tp2
+        if get_settings().exit_mode == "runner":
+            # Runner: NO fixed take-profit. The initial 1.5xATR stop caps the
+            # immediate downside; from there the Chandelier trail (armed at
+            # entry via trailing_high_water) rides the move and is the only
+            # profit-side exit. Leaving tp1/tp2 None makes check_and_exit
+            # skip the fixed-target branches entirely.
+            pos.tp1_price = None
+            pos.tp2_price = None
+        else:
+            pos.tp1_price = tp1
+            pos.tp2_price = tp2
         pos.trailing_high_water = entry_price
         if pos.initial_qty == 0.0:
             pos.initial_qty = abs(pos.qty)
@@ -84,15 +93,25 @@ def set_targets_on_open(
         s.commit()
 
 
-def _update_trailing(pos: Position, price: float) -> tuple[float | None, bool]:
+def _update_trailing(
+    pos: Position, price: float, runner: bool = False
+) -> tuple[float | None, bool]:
     """Chandelier Exit trailing stop — ATR-based, 22-period by default.
 
     Long:  trailing = max(highest_high_last_N, high_water) − K × ATR
     Short: trailing = min(lowest_low_last_N, low_water) + K × ATR
-    Trailing only arms after TP1 hits (position has taken profit on half).
     Never moves the stop backward (long: stop only ratchets up; short: only down).
+
+    Arming:
+      * targets mode — only after TP1 hits (we've banked half).
+      * runner  mode — armed at entry (trailing_high_water is seeded on open).
+        The clamp also differs: targets mode locks to breakeven once armed;
+        runner mode clamps to the INITIAL hard stop instead, so a fresh
+        position isn't shaken out at breakeven on the first wiggle — it
+        gets the full 1.5xATR room until the Chandelier rises above it.
     """
-    if not pos.tp1_hit or pos.trailing_high_water is None:
+    armed = pos.trailing_high_water is not None and (runner or pos.tp1_hit)
+    if not armed:
         return None, False
 
     from app.config import get_settings
@@ -104,14 +123,20 @@ def _update_trailing(pos: Position, price: float) -> tuple[float | None, bool]:
         timeframe=settings.trade_timeframe,
         period=settings.chandelier_period,
     )
+    # Floor the trailing stop. targets mode locks to breakeven (we already
+    # banked half at TP1, so don't give it back). runner mode floors to the
+    # initial hard stop so the position keeps its full 1.5xATR breathing
+    # room until the Chandelier organically rises above it — that's what
+    # lets a winner actually run instead of getting scratched at breakeven.
+    floor = pos.sl_price if (runner and pos.sl_price is not None) else pos.avg_entry
+
     if extremes is None or extremes["atr"] <= 0:
-        # Fall back to a breakeven-locked stop if we can't fetch extremes.
-        entry = pos.avg_entry
+        # Fall back to a floor-locked stop if we can't fetch extremes.
         if pos.qty > 0:
-            trailing_stop = max(entry, pos.trailing_high_water - 2 * entry * 0.005)
+            trailing_stop = max(floor, pos.trailing_high_water - 2 * pos.avg_entry * 0.005)
             triggered = price <= trailing_stop
         else:
-            trailing_stop = min(entry, pos.trailing_high_water + 2 * entry * 0.005)
+            trailing_stop = min(floor, pos.trailing_high_water + 2 * pos.avg_entry * 0.005)
             triggered = price >= trailing_stop
         return trailing_stop, triggered
 
@@ -122,13 +147,13 @@ def _update_trailing(pos: Position, price: float) -> tuple[float | None, bool]:
         pos.trailing_high_water = high_water
         raw_stop = high_water - atr_dist
         # Ratchet: stop can only move up, never down.
-        trailing_stop = max(raw_stop, pos.avg_entry)  # never below breakeven
+        trailing_stop = max(raw_stop, floor)
         triggered = price <= trailing_stop
     else:  # short
         low_water = min(pos.trailing_high_water, extremes["low"], price)
         pos.trailing_high_water = low_water
         raw_stop = low_water + atr_dist
-        trailing_stop = min(raw_stop, pos.avg_entry)  # never above breakeven
+        trailing_stop = min(raw_stop, floor)
         triggered = price >= trailing_stop
     return trailing_stop, triggered
 
@@ -171,9 +196,11 @@ def check_and_exit(symbol: str, price: float) -> dict[str, Any] | None:
         elif not pos.tp1_hit and pos.tp1_price is not None and price <= pos.tp1_price:
             fire_kind, close_qty = "TP1", qty_open * 0.5
 
-    # Trailing stop (only active once TP1 hit).
-    if fire_kind is None and pos.tp1_hit:
-        trailing_stop, triggered = _update_trailing(pos, price)
+    # Trailing stop. targets mode: only after TP1. runner mode: armed from
+    # entry — it IS the profit-side exit (there's no TP1/TP2).
+    runner = get_settings().exit_mode == "runner"
+    if fire_kind is None and (runner or pos.tp1_hit):
+        trailing_stop, triggered = _update_trailing(pos, price, runner=runner)
         if triggered:
             fire_kind, close_qty = "TRAIL", qty_open
         elif trailing_stop is not None:
