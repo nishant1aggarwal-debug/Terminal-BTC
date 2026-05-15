@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     trade_market: str = "futures"  # "spot" | "futures"
     trade_timeframe: str = "15m"
     poll_interval_sec: int = 300
+    # Fast price-only SL/TP monitor cadence. The full signal tick is heavy
+    # (indicators + HTF) so it runs at poll_interval_sec; but stops must be
+    # honored faster than that or a volatile alt slips 2-4x past the stop
+    # inside one tick. 60s is the sweet spot on Render Starter — one batched
+    # fetch_tickers call + per-position exit check, negligible CPU.
+    sl_monitor_sec: int = 60
 
     # Realistic paper-trading fees (match real Binance taker rates by default).
     # bps = basis points (1 bp = 0.01%).

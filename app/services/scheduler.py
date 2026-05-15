@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from sqlmodel import select
 
 from app.config import get_settings
 from app.db import get_session
@@ -309,6 +310,50 @@ async def _tv_consumer() -> None:
             _tv_queue.task_done()
 
 
+async def _sl_monitor_job() -> None:
+    """Fast price-only stop-loss / target sweep. Runs every SL_MONITOR_SEC.
+
+    The full signal tick (every POLL_INTERVAL_SEC, default 5 min) is heavy:
+    OHLCV + 9 indicators + a higher-timeframe snapshot per symbol. But a
+    volatile MEXC alt can blow 5-10% through its stop INSIDE one 5-min
+    candle. Closed-trade data showed average realized loss running at
+    ~-2.7% when the SL was set for ~-1.5% — pure monitoring lag, and it
+    was enough to flip the strategy's expectancy negative.
+
+    This job is the fix. It does the cheap half only: pull the current
+    price for every OPEN position in one batched fetch_tickers call, then
+    run the SAME targets.check_and_exit. Stops are now honored within
+    ~SL_MONITOR_SEC instead of up to a full poll interval — pulling the
+    realized loss back toward the intended 1.5xATR.
+    """
+    with get_session() as s:
+        open_syms = [
+            p.symbol for p in s.exec(select(Position)).all()
+            if abs(p.qty) > 1e-9 and p.sl_price is not None
+        ]
+    if not open_syms:
+        return
+    try:
+        tickers = await asyncio.to_thread(data_source.fetch_tickers, open_syms)
+    except Exception as exc:
+        log.warning("sl_monitor_fetch_failed", error=str(exc))
+        return
+    for sym in open_syms:
+        t = tickers.get(sym) or {}
+        price = t.get("last") or t.get("close")
+        if not price or price <= 0:
+            continue
+        try:
+            res = await asyncio.to_thread(targets.check_and_exit, sym, float(price))
+            if res:
+                log.info(
+                    "sl_monitor_exit", symbol=sym, kind=res.get("kind"),
+                    price=price, pnl=res.get("pnl"),
+                )
+        except Exception as exc:
+            log.warning("sl_monitor_check_failed", symbol=sym, error=str(exc))
+
+
 async def _funding_job() -> None:
     """Fires every hour; only charges when UTC hour is 0/8/16."""
     if funding.should_charge_now():
@@ -381,6 +426,14 @@ def start() -> None:
     settings = get_settings()
     sched = AsyncIOScheduler()
     sched.add_job(tick, "interval", seconds=settings.poll_interval_sec, id="tick", max_instances=1)
+    # Fast stop-loss / target monitor — price-only, every SL_MONITOR_SEC.
+    # This is the loss-slippage fix: honors SL/TP within ~1 min instead of
+    # waiting up to a full 5-min signal tick. coalesce so a slow run never
+    # stacks; max_instances=1 so two never overlap.
+    sched.add_job(
+        _sl_monitor_job, "interval", seconds=settings.sl_monitor_sec,
+        id="sl_monitor", max_instances=1, coalesce=True,
+    )
     # Check funding every minute — job no-ops unless we're at an 8h boundary.
     sched.add_job(_funding_job, "interval", seconds=60, id="funding", max_instances=1)
     # Macro indicators (F&G) every MACRO_POLL_MIN minutes.
