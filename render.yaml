@@ -68,8 +68,14 @@ services:
         value: "500"
       - key: MAX_DAILY_LOSS_USDT
         value: "250"
+      # Strict entry filter — ~10-20 high-conviction signals/day. Below this
+      # the marginal noise was net-negative (62-trade sample: 42% WR, PF 0.78).
       - key: MIN_SIGNAL_CONFIDENCE
-        value: "0.55"
+        value: "0.70"
+      # Trend-runner exits: no fixed TP, ride the Chandelier trail. Lets the
+      # rare big winner pay for many small stop-outs.
+      - key: EXIT_MODE
+        value: "runner"
       # 34-pair alt-heavy universe. filter_supported() drops Kraken-unlisted
       # pairs automatically (~25 will actually trade on Kraken, all ~34 on
       # Bybit/Binance).
