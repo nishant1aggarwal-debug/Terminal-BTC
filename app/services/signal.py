@@ -168,6 +168,18 @@ def generate(
         if rd.size_pct > 0:
             sized = min(sized, rd.size_pct) if rd.size_pct < 0.06 else sized
 
+        # Floor: a signal that cleared the strict confidence gate must still
+        # get a small position even when Kelly says 0% (negative recent
+        # edge). Without this the system freezes permanently after a losing
+        # streak — it can never trade its way to a fresh track record. The
+        # strict entry filter + 1.5xATR stop bound the downside of the floor.
+        if sized < settings.min_trade_size_pct:
+            sized = settings.min_trade_size_pct
+            rd.reasoning = (
+                f"{rd.reasoning} | size floored to "
+                f"{settings.min_trade_size_pct * 100:.2f}% (Kelly starved)"
+            )
+
         rd.size_pct = min(0.06, round(sized, 4))
         rd.reasoning = f"{rd.reasoning} | size {rd.size_pct * 100:.2f}%"
 

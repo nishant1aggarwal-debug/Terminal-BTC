@@ -81,6 +81,17 @@ class Settings(BaseSettings):
     # fetch_tickers call + per-position exit check, negligible CPU.
     sl_monitor_sec: int = 60
 
+    # Minimum position size as a fraction of equity for ANY signal that
+    # cleared the (strict) confidence gate. Kelly sizing legitimately returns
+    # 0% when the recent closed-trade window is net-negative — but that
+    # permanently freezes the system: it can't place the trades it needs to
+    # build a fresh, positive track record, especially right after a strategy
+    # change (the old losing trades dominate the Kelly window forever). This
+    # floor guarantees a high-conviction signal still gets a small bet. Risk
+    # is bounded by the strict entry filter + the 1.5xATR initial stop. Set
+    # 0 to restore pure Kelly (system goes fully dormant on a losing streak).
+    min_trade_size_pct: float = 0.01
+
     # Realistic paper-trading fees (match real Binance taker rates by default).
     # bps = basis points (1 bp = 0.01%).
     fee_spot_bps: float = 10.0       # 0.10% taker — Binance spot default
