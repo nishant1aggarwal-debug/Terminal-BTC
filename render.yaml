@@ -68,10 +68,12 @@ services:
         value: "500"
       - key: MAX_DAILY_LOSS_USDT
         value: "250"
-      # Strict entry filter — ~10-20 high-conviction signals/day. Below this
-      # the marginal noise was net-negative (62-trade sample: 42% WR, PF 0.78).
+      # Strict entry filter — ~10-20 high-conviction signals/day. 0.70 was a
+      # miscalibration (score maxes ~0.72, so 0.70 → ~0 trades). 0.62 is the
+      # data-correct strict level: ~8-10% of decisions fire, well above the
+      # old noisy 0.55.
       - key: MIN_SIGNAL_CONFIDENCE
-        value: "0.70"
+        value: "0.62"
       # Trend-runner exits: no fixed TP, ride the Chandelier trail. Lets the
       # rare big winner pay for many small stop-outs.
       - key: EXIT_MODE

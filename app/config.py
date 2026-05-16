@@ -96,12 +96,18 @@ class Settings(BaseSettings):
     max_daily_loss_usdt: float = 250.0
     max_open_positions: int = 15
 
-    # Signal threshold: composite multi-indicator confidence must exceed this
-    # for a buy/sell to fire. 0.55 is permissive, 0.70 is strict. Lower =
-    # more trades. Set to 0.70 ("strict, ~10-20/day") — only fires when most
-    # indicators agree AND the higher-timeframe confirms. Cuts the marginal
-    # noise that was net-negative at 0.55.
-    min_signal_confidence: float = 0.70
+    # Signal threshold: the composite multi-indicator SCORE must exceed this
+    # for a buy/sell to fire. Score = sum of indicator contributions
+    # (EMA ±0.30, MACD ±0.20, RSI ±0.15, StochRSI ±0.15, BB ±0.10) and in
+    # practice tops out near 0.72, so a 0.70 gate is effectively "never
+    # trade" (~2% of decisions). Calibrated from the LIVE score distribution:
+    #   0.55 → ~18% fire (~200/day, too noisy, was net-negative)
+    #   0.62 → ~8-10% fire (~10-20/day — strict, high-conviction)
+    #   0.70 → ~2% fire (~0/day — unreachable, the miscalibration)
+    # 0.62 = the "strict ~10-20/day" regime: well above the noisy 0.55 but
+    # actually reachable, so the system trades the best setups instead of
+    # going dark.
+    min_signal_confidence: float = 0.62
 
     # Exit strategy:
     #   "targets" — fixed TP1 (50% off at halfway) + TP2 (rest) + trailing
