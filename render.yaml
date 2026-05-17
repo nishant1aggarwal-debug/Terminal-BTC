@@ -36,13 +36,18 @@ services:
       # automatically — no manual TRADE_SYMBOLS list to maintain.
       - key: DATA_SOURCE
         value: mexc
-      - key: AUTO_DISCOVER_SYMBOLS
+      # Liquid-majors mode: trade only the ~24 deepest USDT perps, NO
+      # auto-discovery of MEXC micro-caps (those carried 30-50bps spreads +
+      # near-random TA and were the core of the realized losses). MAJORS_ONLY
+      # overrides auto-discovery in the lifespan regardless of the flag below.
+      - key: MAJORS_ONLY
         value: "true"
-      # 40 is the stable ceiling on Render Starter (0.5 vCPU + 512 MB) with
-      # 3 concurrent ticks at a 5-min cadence. top-60 and top-100 caused
-      # healthcheck timeouts and OOM kills mid-tick. Combined with the
-      # $5M/day floor, top-40 still captures essentially every liquid USDT
-      # perp; the long tail past 40 contributes < 5% of venue volume.
+      # Regime gate: no fresh entries while BTC 4h regime is chop (exits/adds
+      # still run). Trading alts in a sideways tape was a coin-flip minus fees.
+      - key: BLOCK_ENTRIES_IN_CHOP
+        value: "true"
+      - key: AUTO_DISCOVER_SYMBOLS
+        value: "false"
       - key: AUTO_DISCOVER_TOP_N
         value: "40"
       - key: AUTO_DISCOVER_MIN_QUOTE_VOLUME_USDT

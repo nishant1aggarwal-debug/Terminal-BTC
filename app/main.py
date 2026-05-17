@@ -31,7 +31,25 @@ async def lifespan(app: FastAPI):
     # universe just by us pushing a commit — no manual Render env edits.
     # To opt out: set DATA_SOURCE_LOCK=true in Render (rare).
     import os
-    if os.getenv("DATA_SOURCE_LOCK", "").lower() != "true":
+    if settings.majors_only:
+        # Liquid-majors mode: pin the curated deep-liquidity USDT-perp list
+        # and DISABLE auto-discovery of MEXC micro-caps. Micro-caps were the
+        # core of the realized losses — wide spreads + near-random TA. Data
+        # feed stays on mexc (majors exist there with deep books).
+        settings.auto_discover_symbols = False
+        settings.trade_symbols = settings.majors_universe
+        allow = set(settings.allowed_symbols) | set(settings.majors_list)
+        settings.symbol_allowlist = ",".join(sorted(allow))
+        if settings.data_source == "kraken":
+            settings.data_source = "mexc"
+        try:
+            from app.exchange.data_source import get_client as _get_client
+            _get_client.cache_clear()
+        except Exception:
+            pass
+        log.info("majors_only_mode", count=len(settings.majors_list),
+                 symbols=settings.majors_list[:6])
+    elif os.getenv("DATA_SOURCE_LOCK", "").lower() != "true":
         if settings.data_source == "kraken":
             log.info("forcing_wide_universe_data_source", was="kraken", now="mexc")
             settings.data_source = "mexc"

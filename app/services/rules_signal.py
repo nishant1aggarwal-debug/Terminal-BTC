@@ -345,6 +345,19 @@ def generate_decision(
 
     # Fresh entries only from flat, and only when score crosses the bar.
     if abs(pos_qty) < 1e-9:
+        # Regime gate: refuse NEW entries when BTC is in a chop regime.
+        # Exits/adds on existing positions are handled above (pos_qty != 0),
+        # so this only blocks fresh exposure — trading alts in a sideways
+        # tape is a coin-flip minus fees, and that fee-bleed was a large
+        # chunk of the realized losses. Trend regimes (bull/bear) still trade.
+        if settings.block_entries_in_chop and current_regime == "chop":
+            return RulesDecision(
+                action="hold", size_pct=0.0, stop_loss=0.0, take_profit=0.0,
+                confidence=conf,
+                reasoning=f"hold: chop regime — no fresh entries ({reason_tail})",
+                contributions=contribs, dominant_indicator=dominant,
+                regime=current_regime,
+            )
         if score >= threshold:
             if htf_down is True:
                 return RulesDecision(

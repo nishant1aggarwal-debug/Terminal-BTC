@@ -131,6 +131,31 @@ class Settings(BaseSettings):
     #               is the trend-follower / "let it ride" profile.
     exit_mode: str = "runner"
 
+    # Regime gate: when True, NO fresh entries fire while the BTC 4h regime
+    # is "chop". Exits/adds on already-open positions still run. Rationale:
+    # 125-trade evidence showed trading alts in a sideways tape is a coin
+    # flip minus fees, and that fee-bleed was a large slice of the realized
+    # loss. Trend regimes (bull/bear) still trade normally.
+    block_entries_in_chop: bool = True
+
+    # Universe mode. majors_only=True restricts the tradable set to the
+    # curated high-liquidity USDT-perp list below and DISABLES auto-discovery
+    # of MEXC micro-caps. Micro-caps (SIREN, SKYAI, GWEI, ASTEROID, …) have
+    # 30-50 bps spreads and semi-random, often-manipulated price action where
+    # technical analysis is ~noise and spread alone eats ~0.8% per round
+    # trip against a 5% target. Deep liquid majors carry more signal and the
+    # spread cost collapses to 1-2 bps. Set False to restore auto-discovery.
+    majors_only: bool = True
+    # ~24 of the deepest, most liquid USDT perps that also exist on MEXC and
+    # have TradingView coverage. Kept tight on purpose — liquidity is the
+    # whole point of this list.
+    majors_universe: str = (
+        "BTC/USDT,ETH/USDT,SOL/USDT,BNB/USDT,XRP/USDT,DOGE/USDT,ADA/USDT,"
+        "AVAX/USDT,LINK/USDT,LTC/USDT,DOT/USDT,TRX/USDT,ATOM/USDT,UNI/USDT,"
+        "NEAR/USDT,APT/USDT,ARB/USDT,OP/USDT,INJ/USDT,SUI/USDT,TON/USDT,"
+        "FIL/USDT,AAVE/USDT,ETC/USDT"
+    )
+
     # Minimum TP2 distance as a fraction of entry price. With 10x leverage a
     # 5% move = 50% return on margin — comfortably outpaces 0.04% × 2 taker
     # fees + funding. Set lower (0.02) for scalping; higher (0.10) for
@@ -339,6 +364,10 @@ class Settings(BaseSettings):
     @property
     def symbols(self) -> list[str]:
         return [s.strip() for s in self.trade_symbols.split(",") if s.strip()]
+
+    @property
+    def majors_list(self) -> list[str]:
+        return [s.strip() for s in self.majors_universe.split(",") if s.strip()]
 
     @property
     def real_orders_enabled(self) -> bool:
