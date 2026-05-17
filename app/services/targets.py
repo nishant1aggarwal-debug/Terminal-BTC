@@ -75,7 +75,8 @@ def set_targets_on_open(
             return  # Already planned; an add shouldn't reset the stop.
         sl, tp1, tp2 = compute_levels(entry_price, atr, side)
         pos.sl_price = sl
-        if get_settings().exit_mode == "runner":
+        mode = get_settings().exit_mode
+        if mode == "runner":
             # Runner: NO fixed take-profit. The initial 1.5xATR stop caps the
             # immediate downside; from there the Chandelier trail (armed at
             # entry via trailing_high_water) rides the move and is the only
@@ -83,7 +84,16 @@ def set_targets_on_open(
             # skip the fixed-target branches entirely.
             pos.tp1_price = None
             pos.tp2_price = None
-        else:
+        elif mode == "hybrid":
+            # Hybrid: bank a partial at the meaningful-move level (tp1 =
+            # max(2.5xATR, entry x MIN_TP2_PCT) — same distance the old TP2
+            # used), then let the remainder ride the Chandelier trail. No
+            # fixed TP2: the back two-thirds is pure runner. tp1 is set to
+            # the FAR target (not the halfway one) so the locked win is a
+            # real ~5% move, not a scratch.
+            pos.tp1_price = tp2  # the far / meaningful-move level
+            pos.tp2_price = None
+        else:  # "targets"
             pos.tp1_price = tp1
             pos.tp2_price = tp2
         pos.trailing_high_water = entry_price
@@ -178,6 +188,10 @@ def check_and_exit(symbol: str, price: float) -> dict[str, Any] | None:
 
     # Determine which level fires. Order matters: SL first (worst case), then
     # TP2 (full close), then TP1 (partial), then trailing.
+    # TP1 partial fraction: hybrid banks 1/3 then rides the rest on the
+    # trail; classic targets mode banks 1/2.
+    _mode = get_settings().exit_mode
+    tp1_frac = (1.0 / 3.0) if _mode == "hybrid" else 0.5
     fire_kind: str | None = None
     close_qty = 0.0
 
@@ -187,14 +201,14 @@ def check_and_exit(symbol: str, price: float) -> dict[str, Any] | None:
         elif pos.tp2_price is not None and price >= pos.tp2_price:
             fire_kind, close_qty = "TP2", qty_open
         elif not pos.tp1_hit and pos.tp1_price is not None and price >= pos.tp1_price:
-            fire_kind, close_qty = "TP1", qty_open * 0.5
+            fire_kind, close_qty = "TP1", qty_open * tp1_frac
     else:  # short
         if price >= pos.sl_price:
             fire_kind, close_qty = "SL", qty_open
         elif pos.tp2_price is not None and price <= pos.tp2_price:
             fire_kind, close_qty = "TP2", qty_open
         elif not pos.tp1_hit and pos.tp1_price is not None and price <= pos.tp1_price:
-            fire_kind, close_qty = "TP1", qty_open * 0.5
+            fire_kind, close_qty = "TP1", qty_open * tp1_frac
 
     # Trailing stop. targets mode: only after TP1. runner mode: armed from
     # entry — it IS the profit-side exit (there's no TP1/TP2).

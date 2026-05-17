@@ -79,10 +79,12 @@ services:
       # old noisy 0.55.
       - key: MIN_SIGNAL_CONFIDENCE
         value: "0.62"
-      # Trend-runner exits: no fixed TP, ride the Chandelier trail. Lets the
-      # rare big winner pay for many small stop-outs.
+      # Hybrid exits: bank 1/3 at the ~5% meaningful-move level (locks a real
+      # win, floors the win rate vs pure runner's 11% catastrophe), let the
+      # back 2/3 ride the Chandelier trail with a breakeven floor for the
+      # fat-tail upside. Best risk-adjusted structure pending proven edge.
       - key: EXIT_MODE
-        value: "runner"
+        value: "hybrid"
       # 34-pair alt-heavy universe. filter_supported() drops Kraken-unlisted
       # pairs automatically (~25 will actually trade on Kraken, all ~34 on
       # Bybit/Binance).

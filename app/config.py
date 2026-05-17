@@ -122,14 +122,20 @@ class Settings(BaseSettings):
 
     # Exit strategy:
     #   "targets" — fixed TP1 (50% off at halfway) + TP2 (rest) + trailing
-    #               after TP1. Caps winners.
+    #               after TP1. Caps winners. 46% WR historically.
     #   "runner"  — NO fixed take-profit. Initial 1.5xATR hard stop, then a
-    #               Chandelier trailing stop (22-bar high ∓ 3xATR) that arms
-    #               at entry and ratchets with the trend. Exit ONLY when the
-    #               trail breaks. Lets winners run +15-50%; most trades are
-    #               small stop-outs that the rare huge runner pays for. This
-    #               is the trend-follower / "let it ride" profile.
-    exit_mode: str = "runner"
+    #               Chandelier trailing stop (22-bar high ∓ 3xATR) armed at
+    #               entry. Exit ONLY when the trail breaks. Posted 11% WR on
+    #               micro-caps (no fat-tail winners) — unproven on majors.
+    #   "hybrid"  — DEFAULT. Bank 1/3 at the meaningful-move level
+    #               (max(2.5xATR, entry x MIN_TP2_PCT) ≈ +5%) to lock a real
+    #               win, then let the remaining 2/3 ride the Chandelier trail
+    #               with a breakeven floor (the locked win can't turn into a
+    #               loss). Floors the win rate (avoids the pure-runner 11%
+    #               catastrophe) while keeping fat-tail upside on the back
+    #               two-thirds. Best risk-adjusted structure given no proven
+    #               entry edge yet.
+    exit_mode: str = "hybrid"
 
     # Regime gate: when True, NO fresh entries fire while the BTC 4h regime
     # is "chop". Exits/adds on already-open positions still run. Rationale:
@@ -318,8 +324,8 @@ class Settings(BaseSettings):
     @classmethod
     def _check_exit_mode(cls, v: str) -> str:
         v = v.lower()
-        if v not in {"targets", "runner"}:
-            raise ValueError("exit_mode must be 'targets' or 'runner'")
+        if v not in {"targets", "runner", "hybrid"}:
+            raise ValueError("exit_mode must be 'targets', 'runner', or 'hybrid'")
         return v
 
     @field_validator("data_source")
